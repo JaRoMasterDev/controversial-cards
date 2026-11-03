@@ -8,6 +8,7 @@ import { useAction, type Act } from "@/components/useAction";
 import { ErrorText } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
+import { judgeRole } from "./role";
 import { Stage, StageHeading, StickyActionBar } from "./Stage";
 
 /** Anonymous submissions; the judge selects one and confirms. Mount with `key={round.number}`. */
@@ -18,23 +19,29 @@ export function JudgingPhase({ view, round, act }: { view: RoomView; round: Roun
   const judge = view.players.find((p) => p.id === round.judgeId);
   const yours = round.yourSubmission?.map((c) => c.id).join("|") ?? null;
   const selected = round.submissions.some((s) => s.id === selectedId) ? selectedId : null;
+  const role = judgeRole(round);
+  const judgeName = judge?.name ?? `The ${role}`;
 
   return (
     <Stage
       card={<PromptCard text={round.prompt.text} pick={round.prompt.pick} />}
-      caption={isJudge ? "Pick the funniest answer" : `${judge?.name ?? "The judge"} is the judge`}
+      caption={isJudge ? `Pick the ${round.twoPlayer ? "funnier" : "funniest"} answer` : `${judgeName} is the ${role}`}
     >
       {isJudge ? (
         <StageHeading title="Pick the winner">
-          Read each answer out loud, then tap the funniest one and confirm.
+          {round.twoPlayer
+            ? "Both answers are in. Read them out loud, then tap the funnier one and confirm, even if it's your own."
+            : "Read each answer out loud, then tap the funniest one and confirm."}
         </StageHeading>
       ) : (
         <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <Spinner className="size-5 text-rose-600" />
           <div>
-            <h2 className="font-bold">The judge is choosing…</h2>
+            <h2 className="font-bold">The {role} is choosing…</h2>
             <p className="text-sm text-zinc-500">
-              {judge?.name ?? "The judge"} is picking the funniest of {round.submissions.length} answers.
+              {round.twoPlayer
+                ? `${judgeName} is picking the funnier of the two answers.`
+                : `${judgeName} is picking the funniest of ${round.submissions.length} answers.`}
             </p>
           </div>
         </div>

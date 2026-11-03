@@ -80,6 +80,8 @@ export interface Submission {
 export interface Round {
   number: number;
   judgeId: string;
+  /** Two-player round: the judge (called the leader) plays a card too, then picks the winner. */
+  twoPlayer: boolean;
   prompt: PromptCard;
   /** Players expected to submit this round (snapshot at round start). */
   participantIds: string[];
@@ -139,6 +141,8 @@ export interface SubmissionView {
 export interface RoundView {
   number: number;
   judgeId: string;
+  /** The judge plays too and picks between the two answers, their own included. */
+  twoPlayer: boolean;
   prompt: PromptCard;
   participantIds: string[];
   submittedCount: number;

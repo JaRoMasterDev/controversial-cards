@@ -55,6 +55,12 @@ export function LobbyPlayers({ view, act }: { view: RoomView; act: Act }) {
           Share the code or the invite link. You need at least {view.minPlayers} players to start.
         </p>
       )}
+      {activeCount === 2 && (
+        <p className="mt-3 text-sm text-zinc-500">
+          Two-player mode: you take turns as the leader. The leader plays a card too, then picks the funnier of the two
+          answers. With three or more players, the judge only judges.
+        </p>
+      )}
     </Panel>
   );
 }

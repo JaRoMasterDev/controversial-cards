@@ -46,7 +46,9 @@ export function RoundResultPhase({ view, round, act }: { view: RoomView; round: 
 
       {others.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-sm font-bold text-zinc-600 dark:text-zinc-400">The other answers</h3>
+          <h3 className="text-sm font-bold text-zinc-600 dark:text-zinc-400">
+            {others.length === 1 ? "The other answer" : "The other answers"}
+          </h3>
           <ul className="grid gap-3 @xl:grid-cols-2">
             {others.map((submission) => (
               <li key={submission.id}>

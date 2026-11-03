@@ -8,13 +8,16 @@ import { ErrorText } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { CheckIcon, CrownIcon, XIcon } from "@/components/ui/icons";
 
-type Status = "judge" | "played" | "choosing" | "next" | "away" | null;
+type Status = "judge" | "leader" | "played" | "choosing" | "next" | "away" | null;
 
 function statusOf(view: RoomView, player: PlayerView): Status {
   const round = view.round;
   if (!player.active) return "away";
   if (!round || view.phase === "gameOver") return null;
-  if (round.judgeId === player.id) return "judge";
+  // In two-player rounds the leader plays too, so while cards are being played they show that progress instead.
+  if (round.judgeId === player.id && !(round.twoPlayer && view.phase === "playing")) {
+    return round.twoPlayer ? "leader" : "judge";
+  }
   if (!round.participantIds.includes(player.id)) return "next";
   if (view.phase === "playing") return player.hasSubmitted ? "played" : "choosing";
   return null;
@@ -24,6 +27,8 @@ function StatusBadge({ status }: { status: Status }) {
   switch (status) {
     case "judge":
       return <Badge tone="judge">Judge</Badge>;
+    case "leader":
+      return <Badge tone="judge">Leader</Badge>;
     case "played":
       return (
         <Badge tone="success">
@@ -106,7 +111,7 @@ export function ScoreStrip({ view }: { view: RoomView }) {
           <li
             key={player.id}
             className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-sm ${
-              status === "judge"
+              status === "judge" || status === "leader"
                 ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-zinc-900"
                 : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
             } ${player.active ? "" : "opacity-50"}`}

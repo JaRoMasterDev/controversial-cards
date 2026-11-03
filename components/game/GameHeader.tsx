@@ -1,5 +1,6 @@
 import type { RoomView } from "@/lib/game/types";
 import { LogoMark } from "@/components/ui/Logo";
+import { capitalize, judgeRole } from "./role";
 
 export function GameHeader({ view }: { view: RoomView }) {
   const round = view.round;
@@ -14,7 +15,8 @@ export function GameHeader({ view }: { view: RoomView }) {
     subtitle = winner ? `${winner.id === view.you.id ? "You" : winner.name} won` : "Thanks for playing";
   } else {
     title = `Round ${round?.number ?? 1}`;
-    subtitle = youJudge ? "You're the judge" : `Judge: ${judge?.name ?? "someone who left"}`;
+    const role = round ? judgeRole(round) : "judge";
+    subtitle = youJudge ? `You're the ${role}` : `${capitalize(role)}: ${judge?.name ?? "someone who left"}`;
   }
 
   return (

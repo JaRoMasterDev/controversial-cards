@@ -8,6 +8,7 @@ import { useAction, type Act } from "@/components/useAction";
 import { ErrorText } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { HandGrid } from "./HandGrid";
+import { judgeRole } from "./role";
 import { Stage, StageHeading, StickyActionBar } from "./Stage";
 
 const ORDINALS = ["first", "second", "third"];
@@ -41,6 +42,9 @@ export function HandPicker({ view, round, act }: { view: RoomView; round: RoundV
   }
 
   const judge = view.players.find((p) => p.id === round.judgeId);
+  const role = judgeRole(round);
+  const leadCaption =
+    round.judgeId === view.you.id ? "You're the leader: you pick the winner" : `${judge?.name ?? "The leader"} is the leader`;
   const remaining = pick - chosen.length;
   const hint =
     pick === 1
@@ -50,7 +54,13 @@ export function HandPicker({ view, round, act }: { view: RoomView; round: RoundV
   return (
     <Stage
       card={<PromptCard text={round.prompt.text} pick={pick} answers={answers} />}
-      caption={chosen.length > 0 ? "Preview of your answer" : `${judge?.name ?? "The judge"} is the judge`}
+      caption={
+        chosen.length > 0
+          ? "Preview of your answer"
+          : role === "leader"
+            ? leadCaption
+            : `${judge?.name ?? "The judge"} is the judge`
+      }
     >
       <StageHeading title={pick === 1 ? "Play an answer" : `Pick ${pick} answers`}>{hint}</StageHeading>
 

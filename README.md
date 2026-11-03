@@ -12,7 +12,7 @@ npm run dev     # http://localhost:3000
 npm test        # engine unit tests
 ```
 
-Create a room, share the 4-letter code (or the invite link), and start once at least 3 players are in.
+Create a room, share the 4-letter code (or the invite link), and start once at least 2 players are in.
 
 ## How a game works
 
@@ -21,6 +21,8 @@ Create a room, share the 4-letter code (or the invite link), and start once at l
 3. The judge's question is shown to all. Everyone else plays as many answer cards as the question has blanks, in the order they fill them. Questions with three blanks deal everyone two extra cards first.
 4. When all players have played, the submissions are revealed anonymously and the judge picks the best one. Its author scores a point.
 5. Who played what is revealed, hands are refilled to 10 and the next round starts. The first player to reach the target score wins.
+
+**Two players:** with exactly two active players, the judge becomes the **leader**. The role still alternates every round, but the leader plays a card too, and once both answers are in they pick the funnier one, which can be their own. With three or more players the judge only judges.
 
 Players who join mid-game are dealt in from the next round. If someone disconnects for more than 15 seconds they are marked away and skipped; if that was the judge, the round restarts with a new judge. A player who lost their tab can rejoin with the same name to get their seat, score and hand back.
 

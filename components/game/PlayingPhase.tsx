@@ -10,11 +10,12 @@ import { Spinner } from "@/components/ui/Spinner";
 import { ReadOnlyHand } from "./HandGrid";
 import { HandPicker } from "./HandPicker";
 import { RoundProgress, waitingPlayers } from "./RoundProgress";
+import { judgeRole } from "./role";
 import { Stage, StageHeading } from "./Stage";
 
 export function PlayingPhase({ view, round, act }: { view: RoomView; round: RoundView; act: Act }) {
   const me = view.you.id;
-  if (round.judgeId === me) return <JudgeWaiting view={view} round={round} />;
+  if (round.judgeId === me && !round.twoPlayer) return <JudgeWaiting view={view} round={round} />;
   if (!round.participantIds.includes(me)) return <NotDealtIn view={view} round={round} />;
   if (round.yourSubmission) return <Submitted view={view} round={round} />;
   return <HandPicker key={round.number} view={view} round={round} act={act} />;
@@ -75,7 +76,7 @@ function NotDealtIn({ view, round }: { view: RoomView; round: RoundView }) {
   return (
     <Stage
       card={<PromptCard text={round.prompt.text} pick={round.prompt.pick} />}
-      caption={`${judge?.name ?? "The judge"} is the judge`}
+      caption={`${judge?.name ?? `The ${judgeRole(round)}`} is the ${judgeRole(round)}`}
     >
       <StageHeading title="You'll be dealt in next round">
         This round started before you joined. Watch how it goes, your cards are ready for the next one.

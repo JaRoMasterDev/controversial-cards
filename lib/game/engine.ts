@@ -331,7 +331,7 @@ function startGame(room: Room, playerId: string): void {
 function submit(room: Room, playerId: string, cardIds: unknown): void {
   requirePhase(room, "playing");
   const round = room.round!;
-  if (round.judgeId === playerId) throw new GameError("The judge doesn't play cards this round.", 403);
+  if (round.judgeId === playerId && !round.twoPlayer) throw new GameError("The judge doesn't play cards this round.", 403);
   if (!round.participantIds.includes(playerId)) throw new GameError("You'll be dealt in next round.", 403);
   if (round.submissions.some((s) => s.playerId === playerId)) throw new GameError("You already played this round.");
   if (!Array.isArray(cardIds) || !cardIds.every((id) => typeof id === "string")) {
@@ -392,16 +392,19 @@ function startRound(room: Room): void {
   }
   const judgeId = nextJudge(room);
   const prompt = drawPrompt(room);
+  // With only two players the judge (the leader) plays as well, so both answers compete.
+  const twoPlayer = active.length === 2;
+  const plays = (p: Player) => twoPlayer || p.id !== judgeId;
 
   // Hands are topped up to the hand size, and for "Draw 2, Pick 3" prompts to pick - 1
   // above it. Topping up (rather than adding) keeps a restarted round from dealing twice.
   refillHands(room);
   const target = room.settings.handSize + (prompt.pick >= 3 ? prompt.pick - 1 : 0);
   for (const p of active) {
-    if (p.id !== judgeId && p.hand.length < target) p.hand.push(...drawAnswers(room, target - p.hand.length));
+    if (plays(p) && p.hand.length < target) p.hand.push(...drawAnswers(room, target - p.hand.length));
   }
   // Someone holding fewer cards than the prompt needs (a nearly empty deck) sits the round out.
-  const participantIds = active.filter((p) => p.id !== judgeId && p.hand.length >= prompt.pick).map((p) => p.id);
+  const participantIds = active.filter((p) => plays(p) && p.hand.length >= prompt.pick).map((p) => p.id);
   if (participantIds.length === 0) {
     returnToLobby(room, "The answer deck ran out of cards, so the game ended. Add more card sets.");
     return;
@@ -410,6 +413,7 @@ function startRound(room: Room): void {
   const round: Round = {
     number: (room.round?.number ?? 0) + 1,
     judgeId,
+    twoPlayer,
     prompt,
     participantIds,
     submissions: [],
@@ -537,6 +541,7 @@ export function toView(room: Room, viewerId: string): RoomView {
     round: round && {
       number: round.number,
       judgeId: round.judgeId,
+      twoPlayer: round.twoPlayer,
       prompt: round.prompt,
       participantIds: [...round.participantIds],
       submittedCount: round.submissions.length,

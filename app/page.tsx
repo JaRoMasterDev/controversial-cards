@@ -8,7 +8,7 @@ import { Logo } from "@/components/ui/Logo";
 const steps = [
   {
     title: "Gather the group",
-    text: "Create a room and share the invite link. You need at least three players, each on their own phone or laptop.",
+    text: "Create a room and share the invite link. You need at least two players, each on their own phone or laptop.",
   },
   {
     title: "Meet the judge",
@@ -74,7 +74,8 @@ export default function Home() {
         </ol>
         <p className="mt-6 text-sm text-zinc-500">
           Hosts can pick the card sets for the room or import their own as JSON. Questions with two or three blanks
-          take that many answers, played in order.
+          take that many answers, played in order. With only two players you take turns as the leader, who plays a card
+          too and then picks the winner.
         </p>
       </section>
 

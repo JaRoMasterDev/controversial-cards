@@ -201,16 +201,16 @@ describe("starting a game", () => {
     expect(room.phase).toBe("lobby");
   });
 
-  it("needs at least 3 active players", () => {
-    const two = setupLobby({ players: 2 });
-    expectGameError(() => applyAction(two.room, two.host.id, { type: "startGame" }), /at least 3 players/);
-    expect(two.room.phase).toBe("lobby");
+  it("needs at least 2 active players", () => {
+    const one = setupLobby({ players: 1 });
+    expectGameError(() => applyAction(one.room, one.host.id, { type: "startGame" }), /at least 2 players/);
+    expect(one.room.phase).toBe("lobby");
 
-    const { room, host, players } = setupLobby({ players: 3 });
-    setActive(room, players[2].id, false);
+    const { room, host, players } = setupLobby({ players: 2 });
+    setActive(room, players[1].id, false);
     expectRejected(room, host.id, { type: "startGame" });
 
-    setActive(room, players[2].id, true);
+    setActive(room, players[1].id, true);
     applyAction(room, host.id, { type: "startGame" });
     expect(room.phase).toBe("playing");
   });
@@ -871,7 +871,9 @@ describe("players leaving or going away", () => {
     const [a, b] = room.players.filter((p) => p.id !== room.hostId);
     applyAction(room, a.id, { type: "leave" });
     expect(room.phase).toBe("playing");
-    expect(room.round!.participantIds).toHaveLength(1);
+    // A departing participant leaves one player to judge; a departing judge restarts the round,
+    // which with two players left is a two-player round where both play.
+    expect(room.round!.participantIds).toHaveLength(room.round!.twoPlayer ? 2 : 1);
     applyAction(room, b.id, { type: "leave" });
     expect(room.phase).toBe("lobby");
     expect(room.players).toHaveLength(1);
@@ -1134,6 +1136,106 @@ describe("settings and permissions", () => {
   });
 });
 
+describe("two-player rounds", () => {
+  it("lets the leader play a card as well", () => {
+    const { room, host, players } = startGame({ players: 2 });
+    const round = room.round!;
+    expect(round.twoPlayer).toBe(true);
+    expect([...round.participantIds].sort()).toEqual([host.id, players[1].id].sort());
+    for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE);
+
+    const leader = judgeOf(room);
+    const other = round.participantIds.find((id) => id !== leader)!;
+    submit(room, leader);
+    expect(room.phase).toBe("playing");
+    submit(room, other);
+    expect(room.phase).toBe("judging");
+    expect(room.round!.submissions.map((s) => s.playerId).sort()).toEqual([leader, other].sort());
+  });
+
+  it("lets the leader pick either answer, including their own", () => {
+    const { room } = startGame({ players: 2 });
+    const leader = judgeOf(room);
+    submitAll(room);
+    expectRejected(room, room.round!.participantIds.find((id) => id !== leader)!, {
+      type: "pickWinner",
+      submissionId: submissionOf(room, leader).id,
+    }, 403);
+
+    applyAction(room, leader, { type: "pickWinner", submissionId: submissionOf(room, leader).id });
+    expect(room.phase).toBe("roundResult");
+    expect(player(room, leader).score).toBe(1);
+  });
+
+  it("alternates the leader every round", () => {
+    const { room } = startGame({ players: 2 });
+    const leaders = [judgeOf(room)];
+    for (let i = 0; i < 5; i++) {
+      playRound(room);
+      expect(room.round!.twoPlayer).toBe(true);
+      leaders.push(judgeOf(room));
+    }
+    for (let i = 1; i < leaders.length; i++) expect(leaders[i]).not.toBe(leaders[i - 1]);
+    expectAnswersConserved(room, 200);
+  });
+
+  it("deals the leader the Draw 2 bonus for three-blank prompts too", () => {
+    const { room } = startGame({ players: 2, prompts: PICK3_PROMPTS });
+    for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE + 2);
+  });
+
+  it("ends the game when the leader's answer reaches the target", () => {
+    const { room } = startGame({ players: 2, pointsToWin: 1 });
+    const leader = judgeOf(room);
+    submitAll(room);
+    applyAction(room, leader, { type: "pickWinner", submissionId: submissionOf(room, leader).id });
+    expect(room.phase).toBe("gameOver");
+    expect(room.winnerId).toBe(leader);
+  });
+
+  it("switches to judged rounds when a third player joins", () => {
+    const { room } = startGame({ players: 2 });
+    const late = addPlayer(room, "Late");
+    expect(room.round!.participantIds).not.toContain(late.id);
+    playRound(room);
+
+    const round = room.round!;
+    expect(round.twoPlayer).toBe(false);
+    expect(round.participantIds).not.toContain(round.judgeId);
+    expect(round.participantIds).toHaveLength(2);
+    expect(() => submit(room, round.judgeId, handIds(room, round.judgeId).slice(0, 1))).toThrow(/judge doesn't play/);
+  });
+
+  it("switches to two-player rounds when a three-player game drops to two", () => {
+    const { room } = startGame({ players: 3 });
+    expect(room.round!.twoPlayer).toBe(false);
+    const away = room.round!.participantIds[0];
+    setActive(room, away, false);
+    submitAll(room);
+    pickLowest(room);
+    nextRound(room);
+
+    const round = room.round!;
+    expect(round.twoPlayer).toBe(true);
+    expect(round.participantIds).toContain(round.judgeId);
+    expect(round.participantIds).not.toContain(away);
+  });
+
+  it("returns to the lobby when one of the two players leaves", () => {
+    const { room } = startGame({ players: 2 });
+    applyAction(room, judgeOf(room), { type: "leave" });
+    expect(room.phase).toBe("lobby");
+    expect(room.notice).toMatch(/Not enough players/);
+  });
+
+  it("tells clients the round is a two-player round", () => {
+    const { room, host } = startGame({ players: 2 });
+    expect(toView(room, host.id).round!.twoPlayer).toBe(true);
+    const bigger = startGame({ players: 3 });
+    expect(toView(bigger.room, bigger.host.id).round!.twoPlayer).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Randomised games with joins, departures and reconnects, checking the invariants
 // after every move.
@@ -1151,7 +1253,8 @@ function expectConsistent(room: Room, totalAnswers: number, totalPrompts: number
   expectAnswersConserved(room, totalAnswers);
   expectPromptsConserved(room, totalPrompts);
   const round = room.round!;
-  expect(round.participantIds).not.toContain(round.judgeId);
+  // Only the leader of a two-player round plays as well as judges.
+  if (!round.twoPlayer) expect(round.participantIds).not.toContain(round.judgeId);
   const authors = round.submissions.map((s) => s.playerId);
   expect(new Set(authors).size).toBe(authors.length);
   for (const s of round.submissions) {
