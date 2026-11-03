@@ -26,8 +26,10 @@ Players who join mid-game are dealt in from the next round. If someone disconnec
 
 ## Built-in card sets
 
-- **Core** and **Office Chaos** were written for this app.
 - **Classic** (English US, UK, Canada, Australia and International, plus German, Spanish, Portuguese, Catalan, Galician, Italian, Dutch, Greek, Hebrew, Romanian, Russian, Czech and Turkish) and **Family Edition** are adapted from the publisher's free print-and-play decks, which are released under Creative Commons BY-NC-SA ([2.0](https://creativecommons.org/licenses/by-nc-sa/2.0/) for the English editions, [4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) for the others). They live in [`lib/packs/classic/`](lib/packs/classic/) as JSON and stay under those licences: credit the original authors, no commercial use, share changes alike. See [`lib/packs/classic/LICENSE.md`](lib/packs/classic/LICENSE.md). The app shows the required attribution at `/credits`, linked from the home page and the lobby.
+- **Core** and **Office Chaos** were written for this app. The lobby lists them last, in a Custom group together with any imported sets.
+
+New rooms start with **Classic (US)** selected. The English editions share most of their cards, so pick the one that fits your group rather than all five.
 
 Because of the NonCommercial term, don't sell this app or charge for access while it ships the Classic and Family sets.
 

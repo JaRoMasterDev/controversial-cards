@@ -56,14 +56,18 @@ interface PackGroup {
   packs: PackSummary[];
 }
 
-/** Groups sets by language in the server's order; imported sets get a group of their own. */
+/**
+ * Groups the print-and-play sets by language in the server's order. Everything else (the app's own
+ * sets and imports) goes into one Custom group, which the server lists last.
+ */
 function groupPacks(packs: PackSummary[]): PackGroup[] {
   const groups: PackGroup[] = [];
   for (const pack of packs) {
-    const key = pack.custom ? CUSTOM_GROUP : (pack.language ?? "other");
+    // Only the adapted print-and-play sets carry a licence.
+    const key = pack.license ? (pack.language ?? "other") : CUSTOM_GROUP;
     let group = groups.find((g) => g.key === key);
     if (!group) {
-      const name = key === CUSTOM_GROUP ? { native: "Imported", english: "Imported" } : languageName(key);
+      const name = key === CUSTOM_GROUP ? { native: "Custom", english: "Custom" } : languageName(key);
       group = { key, label: name.native, hint: name.english === name.native ? undefined : name.english, packs: [] };
       groups.push(group);
     }
@@ -118,7 +122,7 @@ function PackRow({
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-semibold">{pack.name}</span>
-            {pack.custom && <Badge tone="custom">Custom</Badge>}
+            {pack.custom && <Badge tone="custom">Imported</Badge>}
           </span>
           {pack.description && (
             <span className="mt-0.5 block text-sm text-zinc-600 dark:text-zinc-400">{pack.description}</span>
@@ -257,7 +261,7 @@ function CardSetsSummary({ view }: { view: RoomView }) {
               className="inline-flex items-center gap-2 rounded-full border border-zinc-200 px-3 py-1 text-sm font-semibold dark:border-zinc-700"
             >
               {pack.name}
-              {pack.custom && <Badge tone="custom">Custom</Badge>}
+              {pack.custom && <Badge tone="custom">Imported</Badge>}
             </li>
           ))}
         </ul>

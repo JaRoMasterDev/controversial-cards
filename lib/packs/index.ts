@@ -52,8 +52,8 @@ const CLASSIC_PACKS: CardPack[] = [
   he,
 ];
 
-/** The first set is selected by default in new rooms. */
-export const BUILT_IN_PACKS: CardPack[] = [corePack, officePack, ...CLASSIC_PACKS];
+/** The first set (Classic US) is selected by default in new rooms; the app's own sets come last. */
+export const BUILT_IN_PACKS: CardPack[] = [...CLASSIC_PACKS, corePack, officePack];
 
 export function getBuiltInPack(id: string): CardPack | undefined {
   return BUILT_IN_PACKS.find((pack) => pack.id === id);
