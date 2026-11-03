@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence covers the source code and the original Core and Office Chaos card
-sets. The adapted card sets in lib/packs/classic/ are not covered by it: they are
-shared under Creative Commons BY-NC-SA, as described in lib/packs/classic/LICENSE.md.
