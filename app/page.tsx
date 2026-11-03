@@ -1,69 +1,90 @@
-import Image from "next/image";
+import Link from "next/link";
+import { AnswerCard } from "@/components/cards/AnswerCard";
+import { PromptCard } from "@/components/cards/PromptCard";
+import { CreateRoomForm } from "@/components/home/CreateRoomForm";
+import { JoinRoomForm } from "@/components/home/JoinRoomForm";
+import { Logo } from "@/components/ui/Logo";
+
+const steps = [
+  {
+    title: "Gather the group",
+    text: "Create a room and share the invite link. You need at least three players, each on their own phone or laptop.",
+  },
+  {
+    title: "Meet the judge",
+    text: "Each round a random player is the judge and reads the question on the black card out loud.",
+  },
+  {
+    title: "Play your answers",
+    text: "Everyone else fills the blanks with white answer cards from their hand. Worse is usually better.",
+  },
+  {
+    title: "Win the point",
+    text: "The judge picks the funniest answer without knowing who played it. First to the target score wins.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-16 pt-8 sm:px-6 sm:pt-14">
+      <section className="grid items-center gap-8 md:grid-cols-[1.1fr_1fr] md:gap-12">
+        <div>
+          <h1>
+            <Logo size="lg" />
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-5 max-w-md text-lg leading-relaxed text-zinc-600 dark:text-zinc-400">
+            The party game where you fill in the blanks with the worst possible answers, right in the browser.
           </p>
+          <div aria-hidden className="relative mt-10 hidden h-72 lg:block">
+            <div className="absolute left-0 top-0 w-48 -rotate-6">
+              <PromptCard text="My therapist says the root of all my problems is _." pick={1} size="sm" />
+            </div>
+            <div className="absolute left-40 top-10 w-40 rotate-6">
+              <AnswerCard text="Competitive napping." />
+            </div>
+            <div className="absolute left-72 top-4 w-40 rotate-[14deg] opacity-90">
+              <AnswerCard text="A suspiciously confident raccoon." />
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="space-y-4">
+          <CreateRoomForm />
+          <JoinRoomForm />
         </div>
-      </main>
-    </div>
+      </section>
+
+      <section className="mt-14 sm:mt-20" aria-labelledby="how-to-play">
+        <h2 id="how-to-play" className="text-2xl font-black tracking-tight">
+          How to play
+        </h2>
+        <ol className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((step, i) => (
+            <li
+              key={step.title}
+              className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <span className="grid size-8 place-items-center rounded-full bg-zinc-950 text-sm font-black text-white ring-1 ring-white/10">
+                {i + 1}
+              </span>
+              <h3 className="mt-3 font-bold">{step.title}</h3>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{step.text}</p>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-6 text-sm text-zinc-500">
+          Hosts can pick the card sets for the room or import their own as JSON. Questions with two or three blanks
+          take that many answers, played in order.
+        </p>
+      </section>
+
+      <footer className="mt-14 border-t border-zinc-200 pt-6 text-sm text-zinc-500 dark:border-zinc-800">
+        Some card sets are adapted from free print-and-play decks under Creative Commons BY-NC-SA, for non-commercial
+        play only.{" "}
+        <Link href="/credits" className="font-semibold text-zinc-700 underline underline-offset-2 dark:text-zinc-300">
+          Credits and licences
+        </Link>
+      </footer>
+    </main>
   );
 }
