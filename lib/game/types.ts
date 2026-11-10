@@ -54,9 +54,10 @@ export interface PromptCard {
 
 /**
  * "judging" is the phase in which the winner is decided: by the judge (or leader), or by
- * everyone's votes in a voting round.
+ * everyone's votes in a voting round. "paused": a running game with too few players present
+ * waits for someone to come back, keeping scores and hands.
  */
-export type Phase = "lobby" | "playing" | "judging" | "roundResult" | "gameOver";
+export type Phase = "lobby" | "playing" | "judging" | "roundResult" | "paused" | "gameOver";
 
 /**
  * How a round's winner is chosen. "vote": everyone plays and then votes for their favourite
@@ -127,7 +128,10 @@ export interface Room {
   customPacks: CardPack[];
   answers: Deck<AnswerCard>;
   prompts: Deck<PromptCard>;
+  /** Null in the lobby and while paused. */
   round: Round | null;
+  /** Number of the latest round of this game, so numbering carries on after a pause. */
+  roundNumber: number;
   /** Shuffled order of players still due to judge in the current cycle. */
   judgeQueue: string[];
   lastJudgeId: string | null;
@@ -224,5 +228,7 @@ export type Action =
 /** Messages pushed over the SSE stream GET /api/rooms/[code]/events */
 export type ServerEvent =
   | { type: "state"; view: RoomView }
+  /** Sent every PING_INTERVAL_MS, so the client can tell a live stream from a dead one. */
+  | { type: "ping" }
   | { type: "removed"; reason: "kicked" | "left" }
   | { type: "error"; code: "ROOM_NOT_FOUND" | "INVALID_TOKEN"; message: string };

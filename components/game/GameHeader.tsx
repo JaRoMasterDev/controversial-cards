@@ -13,6 +13,9 @@ export function GameHeader({ view }: { view: RoomView }) {
   if (view.phase === "gameOver") {
     title = "Game over";
     subtitle = winner ? `${winner.id === view.you.id ? "You" : winner.name} won` : "Thanks for playing";
+  } else if (view.phase === "paused") {
+    title = "Game paused";
+    subtitle = "Waiting for players to come back";
   } else if (round?.voting) {
     title = `Round ${round.number}`;
     subtitle =

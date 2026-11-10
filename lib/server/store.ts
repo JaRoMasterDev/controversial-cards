@@ -16,8 +16,11 @@ import {
 } from "@/lib/game/engine";
 import type { Action, Room, ServerEvent } from "@/lib/game/types";
 
-/** How long a player may be disconnected (e.g. a page reload) before counting as away. */
-const PRESENCE_GRACE_MS = 15_000;
+/**
+ * How long a player may be disconnected before counting as away: long enough for a reload,
+ * a locked phone screen or a quick switch to another app.
+ */
+const PRESENCE_GRACE_MS = 60_000;
 /** Rooms nobody is connected to are deleted after this long without activity. */
 const IDLE_ROOM_TTL_MS = 60 * 60_000;
 const SWEEP_INTERVAL_MS = 5 * 60_000;

@@ -26,7 +26,9 @@ Create a room, share the 4-letter code (or the invite link), and start once at l
 
 **Two players:** a vote between two players would always tie, so with exactly two active players, in either mode, the rounds have a **leader** instead. The role alternates every round; the leader plays a card too, and once both answers are in they pick the funnier one, which can be their own. As soon as a third player is active, rounds go back to voting (or to a judge who only judges).
 
-Players who join mid-game are dealt in from the next round, and vote from then on too. If someone disconnects for more than 15 seconds they are marked away and skipped, both when playing and when voting; if that was the judge, the round restarts with a new judge. If a player leaves during the vote, their answer is withdrawn and anyone who voted for it votes again. A player who lost their tab can rejoin with the same name to get their seat, score and hand back.
+Players who join mid-game are dealt in from the next round, and vote from then on too. If someone disconnects for more than 60 seconds (long enough to lock a phone or switch apps for a moment) they are marked away and skipped, both when playing and when voting; if that was the judge, the round restarts with a new judge. If a player leaves during the vote, their answer is withdrawn and anyone who voted for it votes again. A player who lost their tab can rejoin with the same name to get their seat, score and hand back.
+
+If fewer than two players are left, the game **pauses** instead of ending: scores and hands are kept, and a new round starts as soon as someone comes back or joins. The host can end a paused game. Browsers reconnect on their own after a dropped connection, including after an error page from a proxy, after the device slept and when the tab is opened again.
 
 ## Built-in card sets
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { PING_INTERVAL_MS } from "@/lib/game/constants";
 import type { Action, RoomView, ServerEvent } from "@/lib/game/types";
 import { ApiError, clearSession, readSessionRaw, sendAction, subscribeSessions, type Session } from "./api";
 
@@ -9,7 +10,7 @@ export type RoomStatus =
   | "no-session" // not joined yet: show the join form
   | "connecting"
   | "connected"
-  | "reconnecting" // stream dropped, the browser is retrying
+  | "reconnecting" // stream dropped, the browser or this hook is retrying
   | "not-found" // room doesn't exist (wrong code, or the server restarted)
   | "removed"; // kicked or left
 
@@ -32,6 +33,13 @@ interface Connection {
 }
 
 const SERVER_SNAPSHOT = "\u0000server";
+
+/** First delay before reopening a stream the browser gave up on; doubles up to RETRY_MAX_MS. */
+const RETRY_MIN_MS = 1_000;
+const RETRY_MAX_MS = 15_000;
+/** Hearing nothing (not even a ping) for this long means the stream is dead. */
+const STALE_MS = PING_INTERVAL_MS + 10_000;
+const HEALTH_CHECK_MS = 5_000;
 
 export function useRoom(code: string): UseRoom {
   const raw = useSyncExternalStore(
@@ -58,17 +66,50 @@ export function useRoom(code: string): UseRoom {
         ...patch,
       }));
 
-    const source = new EventSource(`/api/rooms/${session.code}/events?token=${encodeURIComponent(token)}`);
-    source.onopen = () => update({ status: "connected" });
-    source.onerror = () => update({ status: "reconnecting" });
-    source.onmessage = (e: MessageEvent<string>) => {
-      const event = JSON.parse(e.data) as ServerEvent;
-      if (event.type === "state") {
-        update({ status: "connected", view: event.view });
-        return;
-      }
-      // Terminal events: stop the browser from reconnecting and forget the seat.
-      source.close();
+    const url = `/api/rooms/${session.code}/events?token=${encodeURIComponent(token)}`;
+    let source: EventSource | null = null;
+    let lastHeard = 0;
+    let retries = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Set once the room is gone for this tab (or the effect is cleaned up): never reconnect. */
+    let finished = false;
+
+    function connect() {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      source?.close();
+      lastHeard = Date.now();
+      const es = new EventSource(url);
+      source = es;
+      es.onopen = () => {
+        retries = 0;
+        lastHeard = Date.now();
+        update({ status: "connected" });
+      };
+      es.onerror = () => {
+        update({ status: "reconnecting" });
+        // After a network error the browser retries by itself, but after an error response
+        // (say a proxy's 502 while the server restarts) it gives up for good. Then retry here.
+        if (es.readyState === EventSource.CLOSED && retryTimer === undefined) {
+          retryTimer = setTimeout(connect, Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** retries++));
+        }
+      };
+      es.onmessage = (e: MessageEvent<string>) => {
+        lastHeard = Date.now();
+        const event = JSON.parse(e.data) as ServerEvent;
+        if (event.type === "ping") return;
+        if (event.type === "state") {
+          update({ status: "connected", view: event.view });
+          return;
+        }
+        // Terminal events: stop reconnecting and forget the seat.
+        finished = true;
+        es.close();
+        onTerminal(event);
+      };
+    }
+
+    function onTerminal(event: Exclude<ServerEvent, { type: "state" } | { type: "ping" }>) {
       if (event.type === "removed") {
         update({
           status: "removed",
@@ -82,8 +123,33 @@ export function useRoom(code: string): UseRoom {
         setJoinMessage(event.message);
       }
       clearSession(code);
+    }
+
+    // A stream can look open while it is dead, e.g. after a phone slept or changed networks.
+    // The server pings regularly, so silence means starting over.
+    function checkHealth() {
+      if (finished || retryTimer !== undefined) return;
+      if (Date.now() - lastHeard > STALE_MS) connect();
+    }
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkHealth();
     };
-    return () => source.close();
+    const onOnline = () => {
+      if (!finished && source?.readyState !== EventSource.OPEN) connect();
+    };
+
+    connect();
+    const healthTimer = setInterval(checkHealth, HEALTH_CHECK_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      finished = true;
+      clearTimeout(retryTimer);
+      clearInterval(healthTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      source?.close();
+    };
   }, [code, session]);
 
   let status: RoomStatus;

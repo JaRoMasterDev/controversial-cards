@@ -3,7 +3,7 @@
 
 /** With exactly two players, rounds switch to two-player mode: the leader (judge) plays a card too. */
 export const MIN_PLAYERS_TO_START = 2;
-/** Below this many active players a running game returns to the lobby. */
+/** Below this many active players a running game pauses until someone is back. */
 export const MIN_PLAYERS_TO_CONTINUE = 2;
 /** Voting rounds need this many active players; with fewer (two), rounds have a leader instead. */
 export const MIN_PLAYERS_TO_VOTE = 3;
@@ -17,3 +17,5 @@ export const MAX_POINTS_TO_WIN = 30;
 export const MAX_CUSTOM_PACKS = 10;
 export const MAX_NAME_LENGTH = 24;
 export const RESULT_DELAY_MS = 12_000;
+/** The live stream sends a ping this often; a client that hears nothing for longer reconnects. */
+export const PING_INTERVAL_MS = 20_000;

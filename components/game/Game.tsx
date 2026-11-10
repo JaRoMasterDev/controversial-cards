@@ -8,33 +8,38 @@ import { GameControls } from "./GameControls";
 import { GameHeader } from "./GameHeader";
 import { GameOverPhase } from "./GameOverPhase";
 import { JudgingPhase } from "./JudgingPhase";
+import { PausedPhase } from "./PausedPhase";
 import { PlayingPhase } from "./PlayingPhase";
 import { RoundResultPhase } from "./RoundResultPhase";
 import { Scoreboard, ScoreStrip } from "./Scoreboard";
 import { VotingPhase } from "./VotingPhase";
 
-/** A running game: phases playing, judging, roundResult and gameOver. */
+/** A running game: phases playing, judging, roundResult, paused and gameOver. */
 export function Game({ view, act }: { view: RoomView; act: Act }) {
   const round = view.round;
-  if (!round) return <FullScreenSpinner label="Dealing the cards…" />;
-
   let phase;
-  switch (view.phase) {
-    case "playing":
-      phase = <PlayingPhase view={view} round={round} act={act} />;
-      break;
-    case "judging":
-      phase = round.voting ? (
-        <VotingPhase key={round.number} view={view} round={round} act={act} />
-      ) : (
-        <JudgingPhase key={round.number} view={view} round={round} act={act} />
-      );
-      break;
-    case "roundResult":
-      phase = <RoundResultPhase key={round.number} view={view} round={round} act={act} />;
-      break;
-    default:
-      phase = <GameOverPhase view={view} round={round} act={act} />;
+  if (view.phase === "paused") {
+    phase = <PausedPhase view={view} />;
+  } else if (!round) {
+    return <FullScreenSpinner label="Dealing the cards…" />;
+  } else {
+    switch (view.phase) {
+      case "playing":
+        phase = <PlayingPhase view={view} round={round} act={act} />;
+        break;
+      case "judging":
+        phase = round.voting ? (
+          <VotingPhase key={round.number} view={view} round={round} act={act} />
+        ) : (
+          <JudgingPhase key={round.number} view={view} round={round} act={act} />
+        );
+        break;
+      case "roundResult":
+        phase = <RoundResultPhase key={round.number} view={view} round={round} act={act} />;
+        break;
+      default:
+        phase = <GameOverPhase view={view} round={round} act={act} />;
+    }
   }
 
   return (

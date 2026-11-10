@@ -1,9 +1,7 @@
 import type { NextRequest } from "next/server";
-import { GameError } from "@/lib/game/engine";
+import { GameError, PING_INTERVAL_MS } from "@/lib/game/engine";
 import type { ServerEvent } from "@/lib/game/types";
 import { store } from "@/lib/server/store";
-
-const KEEP_ALIVE_MS = 20_000;
 
 /**
  * Server-Sent Events stream of the room, personalised for the player: GET ?token=...
@@ -28,7 +26,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/rooms/[c
         }
       };
       const send = (event: ServerEvent) => write(`data: ${JSON.stringify(event)}\n\n`);
-      const keepAlive = setInterval(() => write(": keep-alive\n\n"), KEEP_ALIVE_MS);
+      // Keeps proxies from closing an idle stream, and lets the client spot a dead one.
+      const keepAlive = setInterval(() => send({ type: "ping" }), PING_INTERVAL_MS);
 
       let disconnect = () => {};
       function close() {

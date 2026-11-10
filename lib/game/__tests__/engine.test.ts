@@ -884,22 +884,43 @@ describe("players leaving or going away", () => {
     expect(room.round!.submissions.map((s) => s.playerId)).toEqual([a]);
   });
 
-  it("returns to the lobby when fewer than 2 players are active", () => {
+  it("pauses when fewer than 2 players are active, keeping scores and hands, and resumes when one is back", () => {
     const { room } = startGame({ players: 3 });
+    playRound(room);
+    const scores = room.players.map((p) => p.score);
     const others = room.players.filter((p) => p.id !== room.hostId);
 
     setActive(room, others[0].id, false);
-    expect(room.phase).not.toBe("lobby");
+    expect(room.phase).toBe("playing");
     expect(activePlayers(room)).toHaveLength(2);
+    // The round in progress, with a card already played, is put back when the game pauses.
+    const number = room.round!.number;
+    submit(room, room.round!.participantIds.find((id) => player(room, id).active)!);
 
     setActive(room, others[1].id, false);
-    expect(room.phase).toBe("lobby");
+    expect(room.phase).toBe("paused");
     expect(room.round).toBeNull();
-    expect(room.notice).toMatch(/Not enough players/);
-    for (const p of room.players) expect(p.hand).toEqual([]);
+    expect(room.notice).toBeNull();
+    expect(room.players.map((p) => p.score)).toEqual(scores);
+    for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE);
+    expectAnswersConserved(room, 200);
+    expectPromptsConserved(room, PICK1_PROMPTS.length);
+    const view = toView(room, room.hostId);
+    expect(view.phase).toBe("paused");
+    expect(view.round).toBeNull();
+    expectRejected(room, room.hostId, { type: "nextRound" }, 409);
+    expectRejected(room, room.hostId, { type: "startGame" }, 409);
+
+    setActive(room, others[1].id, true);
+    expect(room.phase).toBe("playing");
+    expect(room.round!.number).toBe(number + 1);
+    expect(room.round!.twoPlayer).toBe(true);
+    expect(room.notice).toMatch(/back/);
+    expect(room.players.map((p) => p.score)).toEqual(scores);
+    expectAnswersConserved(room, 200);
   });
 
-  it("returns to the lobby when players leave until only 1 is left", () => {
+  it("pauses when players leave until only 1 is left, and goes on when someone joins", () => {
     const { room } = startGame({ players: 3 });
     const [a, b] = room.players.filter((p) => p.id !== room.hostId);
     applyAction(room, a.id, { type: "leave" });
@@ -908,19 +929,44 @@ describe("players leaving or going away", () => {
     // which with two players left is a two-player round where both play.
     expect(room.round!.participantIds).toHaveLength(room.round!.twoPlayer ? 2 : 1);
     applyAction(room, b.id, { type: "leave" });
-    expect(room.phase).toBe("lobby");
+    expect(room.phase).toBe("paused");
     expect(room.players).toHaveLength(1);
+    expectAnswersConserved(room, 200);
+
+    const late = addPlayer(room, "Late");
+    expect(room.phase).toBe("playing");
+    expect(late.hand).toHaveLength(HAND_SIZE);
+    expect(room.round!.participantIds).toContain(late.id);
+    expectAnswersConserved(room, 200);
   });
 
-  it("returns to the lobby when a player leaves during the round result", () => {
+  it("pauses when a player leaves during the round result, and resumes when a seat is reclaimed", () => {
     const { room } = startGame({ players: 3 });
     submitAll(room);
     pickLowest(room);
     const [a, b] = room.players.filter((p) => p.id !== room.hostId);
     setActive(room, a.id, false);
     expect(room.phase).toBe("roundResult");
+    const scores = room.players.filter((p) => p.id !== b.id).map((p) => p.score);
     removePlayer(room, b.id);
+    expect(room.phase).toBe("paused");
+    expect(room.players.map((p) => p.score)).toEqual(scores);
+    expectAnswersConserved(room, 200);
+    expectPromptsConserved(room, PICK1_PROMPTS.length);
+
+    addPlayer(room, a.name);
+    expect(room.phase).toBe("playing");
+    expect(player(room, a.id).active).toBe(true);
+  });
+
+  it("lets the host end a paused game", () => {
+    const { room, host, players } = startGame({ players: 2 });
+    setActive(room, players[1].id, false);
+    expect(room.phase).toBe("paused");
+    expectRejected(room, players[1].id, { type: "backToLobby" }, 403);
+    applyAction(room, host.id, { type: "backToLobby" });
     expect(room.phase).toBe("lobby");
+    for (const p of room.players) expect(p.hand).toEqual([]);
   });
 
   it("passes the host role on to an active player when the host leaves", () => {
@@ -1263,11 +1309,11 @@ describe("two-player rounds", () => {
     expect(round.participantIds).not.toContain(away);
   });
 
-  it("returns to the lobby when one of the two players leaves", () => {
+  it("pauses when one of the two players leaves", () => {
     const { room } = startGame({ players: 2 });
     applyAction(room, judgeOf(room), { type: "leave" });
-    expect(room.phase).toBe("lobby");
-    expect(room.notice).toMatch(/Not enough players/);
+    expect(room.phase).toBe("paused");
+    expect(room.round).toBeNull();
   });
 
   it("tells clients the round is a two-player round", () => {
@@ -1523,6 +1569,12 @@ function expectConsistent(room: Room, totalAnswers: number, totalPrompts: number
 
   expectAnswersConserved(room, totalAnswers);
   expectPromptsConserved(room, totalPrompts);
+  if (room.phase === "paused") {
+    expect(room.round).toBeNull();
+    // With enough players present it would have gone on.
+    expect(activePlayers(room).length).toBeLessThan(2);
+    return;
+  }
   const round = room.round!;
   expect(round.voting).toBe(round.judgeId === null);
   if (round.voting) expect(round.twoPlayer).toBe(false);
@@ -1589,6 +1641,12 @@ describe("randomised play", () => {
               applyAction(room, room.hostId, { type: "startGame" });
               game++;
               break;
+            case "paused": {
+              const away = room.players.filter((p) => !p.active);
+              if (away.length > 0) setActive(room, pickOne(away).id, true);
+              else addPlayer(room, `Extra ${++extra}`);
+              break;
+            }
             case "playing": {
               const id = pickOne(pending(room));
               const hand = [...handIds(room, id)];

@@ -87,6 +87,7 @@ export function createRoom(code: string, hostName: string, now = Date.now()): { 
     answers: { draw: [], discard: [] },
     prompts: { draw: [], discard: [] },
     round: null,
+    roundNumber: 0,
     judgeQueue: [],
     lastJudgeId: null,
     winnerId: null,
@@ -109,6 +110,7 @@ export function addPlayer(room: Room, name: string, now = Date.now()): Player {
     existing.token = randomId();
     existing.active = true;
     ensureActiveHost(room);
+    resumeIfPaused(room);
     touch(room, now);
     return existing;
   }
@@ -122,6 +124,7 @@ export function addPlayer(room: Room, name: string, now = Date.now()): Player {
     if (room.phase !== "gameOver") room.judgeQueue.splice(randomInt(room.judgeQueue.length + 1), 0, player.id);
   }
   ensureActiveHost(room);
+  resumeIfPaused(room);
   touch(room, now);
   return player;
 }
@@ -146,7 +149,8 @@ export function setActive(room: Room, playerId: string, active: boolean, now = D
   if (!player || player.active === active) return;
   player.active = active;
   ensureActiveHost(room);
-  if (!active) handleDeparture(room, player, false, now);
+  if (active) resumeIfPaused(room);
+  else handleDeparture(room, player, false, now);
   touch(room, now);
 }
 
@@ -159,6 +163,10 @@ function ensureActiveHost(room: Room): void {
 }
 
 function handleDeparture(room: Room, player: Player, removed: boolean, now: number): void {
+  if (isInGame(room) && activePlayers(room).length < MIN_PLAYERS_TO_CONTINUE) {
+    pauseGame(room);
+    return;
+  }
   const round = room.round;
   if (round && (room.phase === "playing" || room.phase === "judging")) {
     if (round.judgeId === player.id) {
@@ -182,9 +190,30 @@ function handleDeparture(room: Room, player: Player, removed: boolean, now: numb
     maybeStartJudging(room, now);
     maybeFinishVoting(room, now);
   }
-  if (isInGame(room) && activePlayers(room).length < MIN_PLAYERS_TO_CONTINUE) {
-    returnToLobby(room, "Not enough players left to continue, so the game ended.");
-  }
+}
+
+/**
+ * Too few players are here to go on, for example because someone's phone went to sleep.
+ * Rather than ending, the game waits with scores and hands kept. A round in progress is put
+ * back and starts over once enough players are back (see resumeIfPaused).
+ */
+function pauseGame(room: Room): void {
+  if (room.phase === "roundResult") discardRound(room);
+  else abandonRound(room);
+  pause(room);
+}
+
+function pause(room: Room): void {
+  room.phase = "paused";
+  room.round = null;
+  room.notice = null;
+}
+
+/** Deals a new round once a paused game has enough players again. */
+function resumeIfPaused(room: Room): void {
+  if (room.phase !== "paused" || activePlayers(room).length < MIN_PLAYERS_TO_CONTINUE) return;
+  startRound(room);
+  if (room.round) room.notice = "Enough players are back, so the game goes on.";
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +371,7 @@ function startGame(room: Room, playerId: string): void {
     p.hand = [];
   }
   room.round = null;
+  room.roundNumber = 0;
   room.judgeQueue = [];
   room.lastJudgeId = null;
   room.winnerId = null;
@@ -419,9 +449,7 @@ function finishRound(room: Room, winning: Submission[], now: number): void {
 /** Ends the shown round result and deals the next round. Called by players or the store's timer. */
 export function nextRound(room: Room): void {
   requirePhase(room, "roundResult");
-  const round = room.round!;
-  room.prompts.discard.push(round.prompt);
-  for (const s of round.submissions) room.answers.discard.push(...s.cards);
+  discardRound(room);
   room.notice = null;
   startRound(room);
 }
@@ -429,10 +457,11 @@ export function nextRound(room: Room): void {
 // ---------------------------------------------------------------------------
 // Round mechanics
 
+/** Deals the next round. Callers have already cleared the previous round's cards away. */
 function startRound(room: Room): void {
   const active = activePlayers(room);
   if (active.length < MIN_PLAYERS_TO_CONTINUE) {
-    returnToLobby(room, "Not enough players left to continue, so the game ended.");
+    pause(room);
     return;
   }
   // With only two players the judge (the leader) plays as well, so both answers compete.
@@ -457,8 +486,9 @@ function startRound(room: Room): void {
     return;
   }
 
+  room.roundNumber += 1;
   const round: Round = {
-    number: (room.round?.number ?? 0) + 1,
+    number: room.roundNumber,
     judgeId,
     twoPlayer,
     voting,
@@ -534,19 +564,32 @@ function maybeFinishVoting(room: Room, now: number): void {
   finishRound(room, round.submissions.filter((s) => tally.get(s.id) === most), now);
 }
 
-/** Abandons the current round: played cards go back to their owners and a new round starts. */
+/** Abandons the current round and starts a new one. */
 function cancelRound(room: Room, notice: string): void {
-  const round = room.round!;
+  abandonRound(room);
+  startRound(room);
+  // startRound may have ended or paused the game instead; then its own state explains why.
+  if (room.phase === "playing") room.notice = notice;
+}
+
+/** Puts back a round that won't be finished: played cards to their owners, the question under the deck. */
+function abandonRound(room: Room): void {
+  const round = room.round;
+  if (!round) return;
   for (const s of round.submissions) {
     const owner = room.players.find((p) => p.id === s.playerId);
     if (owner) owner.hand.push(...s.cards);
     else room.answers.discard.push(...s.cards);
   }
   room.prompts.draw.unshift(round.prompt);
-  room.notice = notice;
-  startRound(room);
-  // startRound may have ended the game; keep the explanation from that instead.
-  if (room.phase !== "lobby") room.notice = notice;
+}
+
+/** Clears a finished round's question and played cards onto the discard piles. */
+function discardRound(room: Room): void {
+  const round = room.round;
+  if (!round) return;
+  room.prompts.discard.push(round.prompt);
+  for (const s of round.submissions) room.answers.discard.push(...s.cards);
 }
 
 function returnToLobby(room: Room, notice: string | null): void {
