@@ -57,9 +57,11 @@ export function HandPicker({ view, round, act }: { view: RoomView; round: RoundV
       caption={
         chosen.length > 0
           ? "Preview of your answer"
-          : role === "leader"
-            ? leadCaption
-            : `${judge?.name ?? "The judge"} is the judge`
+          : round.voting
+            ? "Everyone plays, then votes for the funniest"
+            : role === "leader"
+              ? leadCaption
+              : `${judge?.name ?? "The judge"} is the judge`
       }
     >
       <StageHeading title={pick === 1 ? "Play an answer" : `Pick ${pick} answers`}>{hint}</StageHeading>

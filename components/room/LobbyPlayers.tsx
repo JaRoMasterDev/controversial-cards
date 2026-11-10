@@ -58,7 +58,10 @@ export function LobbyPlayers({ view, act }: { view: RoomView; act: Act }) {
       {activeCount === 2 && (
         <p className="mt-3 text-sm text-zinc-500">
           Two-player mode: you take turns as the leader. The leader plays a card too, then picks the funnier of the two
-          answers. With three or more players, the judge only judges.
+          answers.{" "}
+          {view.settings.mode === "vote"
+            ? "With three or more players, everyone votes instead."
+            : "With three or more players, the judge only judges."}
         </p>
       )}
     </Panel>

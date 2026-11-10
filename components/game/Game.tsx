@@ -11,6 +11,7 @@ import { JudgingPhase } from "./JudgingPhase";
 import { PlayingPhase } from "./PlayingPhase";
 import { RoundResultPhase } from "./RoundResultPhase";
 import { Scoreboard, ScoreStrip } from "./Scoreboard";
+import { VotingPhase } from "./VotingPhase";
 
 /** A running game: phases playing, judging, roundResult and gameOver. */
 export function Game({ view, act }: { view: RoomView; act: Act }) {
@@ -23,7 +24,11 @@ export function Game({ view, act }: { view: RoomView; act: Act }) {
       phase = <PlayingPhase view={view} round={round} act={act} />;
       break;
     case "judging":
-      phase = <JudgingPhase key={round.number} view={view} round={round} act={act} />;
+      phase = round.voting ? (
+        <VotingPhase key={round.number} view={view} round={round} act={act} />
+      ) : (
+        <JudgingPhase key={round.number} view={view} round={round} act={act} />
+      );
       break;
     case "roundResult":
       phase = <RoundResultPhase key={round.number} view={view} round={round} act={act} />;

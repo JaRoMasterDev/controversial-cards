@@ -17,7 +17,6 @@ export function JudgingPhase({ view, round, act }: { view: RoomView; round: Roun
   const { run, pending, error } = useAction(act);
   const isJudge = round.judgeId === view.you.id;
   const judge = view.players.find((p) => p.id === round.judgeId);
-  const yours = round.yourSubmission?.map((c) => c.id).join("|") ?? null;
   const selected = round.submissions.some((s) => s.id === selectedId) ? selectedId : null;
   const role = judgeRole(round);
   const judgeName = judge?.name ?? `The ${role}`;
@@ -48,23 +47,18 @@ export function JudgingPhase({ view, round, act }: { view: RoomView; round: Roun
       )}
 
       <ul className="grid gap-3 @xl:grid-cols-2">
-        {round.submissions.map((submission) => {
-          const isYours = yours !== null && submission.cards.map((c) => c.id).join("|") === yours;
-          return (
-            <li key={submission.id} className="animate-fade-up">
-              <SubmissionCard
-                prompt={round.prompt}
-                cards={submission.cards}
-                selected={selected === submission.id}
-                onSelect={
-                  isJudge ? () => setSelectedId((id) => (id === submission.id ? null : submission.id)) : undefined
-                }
-                disabled={pending}
-                label={isYours ? "Your answer" : undefined}
-              />
-            </li>
-          );
-        })}
+        {round.submissions.map((submission) => (
+          <li key={submission.id} className="animate-fade-up">
+            <SubmissionCard
+              prompt={round.prompt}
+              cards={submission.cards}
+              selected={selected === submission.id}
+              onSelect={isJudge ? () => setSelectedId((id) => (id === submission.id ? null : submission.id)) : undefined}
+              disabled={pending}
+              label={submission.yours ? "Your answer" : undefined}
+            />
+          </li>
+        ))}
       </ul>
 
       {isJudge && (

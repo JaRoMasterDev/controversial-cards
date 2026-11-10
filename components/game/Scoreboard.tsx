@@ -8,7 +8,7 @@ import { ErrorText } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { CheckIcon, CrownIcon, XIcon } from "@/components/ui/icons";
 
-type Status = "judge" | "leader" | "played" | "choosing" | "next" | "away" | null;
+type Status = "judge" | "leader" | "played" | "choosing" | "voted" | "voting" | "next" | "away" | null;
 
 function statusOf(view: RoomView, player: PlayerView): Status {
   const round = view.round;
@@ -20,6 +20,9 @@ function statusOf(view: RoomView, player: PlayerView): Status {
   }
   if (!round.participantIds.includes(player.id)) return "next";
   if (view.phase === "playing") return player.hasSubmitted ? "played" : "choosing";
+  if (view.phase === "judging" && round.voting && round.voterIds.includes(player.id)) {
+    return player.hasVoted ? "voted" : "voting";
+  }
   return null;
 }
 
@@ -38,6 +41,15 @@ function StatusBadge({ status }: { status: Status }) {
       );
     case "choosing":
       return <span className="text-xs text-zinc-400">Choosing…</span>;
+    case "voted":
+      return (
+        <Badge tone="success">
+          <CheckIcon className="size-3" />
+          Voted
+        </Badge>
+      );
+    case "voting":
+      return <span className="text-xs text-zinc-400">Voting…</span>;
     case "next":
       return <span className="text-xs text-zinc-400">Joins next round</span>;
     case "away":
@@ -121,7 +133,9 @@ export function ScoreStrip({ view }: { view: RoomView }) {
               {player.id === view.you.id ? "You" : player.name}
             </span>
             <span className="font-black tabular-nums">{player.score}</span>
-            {status === "played" && <CheckIcon className="size-3.5 text-emerald-500" aria-label="Played" />}
+            {(status === "played" || status === "voted") && (
+              <CheckIcon className="size-3.5 text-emerald-500" aria-label={status === "played" ? "Played" : "Voted"} />
+            )}
           </li>
         );
       })}

@@ -8,15 +8,18 @@ import type {
   AnswerCard,
   CardPack,
   Deck,
+  GameMode,
   PackSummary,
   Player,
   PromptCard,
   Room,
   RoomView,
   Round,
+  Submission,
 } from "./types";
 
 import {
+  DEFAULT_MODE,
   DEFAULT_POINTS_TO_WIN,
   HAND_SIZE,
   MAX_CUSTOM_PACKS,
@@ -25,6 +28,7 @@ import {
   MAX_POINTS_TO_WIN,
   MIN_PLAYERS_TO_CONTINUE,
   MIN_PLAYERS_TO_START,
+  MIN_PLAYERS_TO_VOTE,
   MIN_POINTS_TO_WIN,
   RESULT_DELAY_MS,
 } from "./constants";
@@ -77,6 +81,7 @@ export function createRoom(code: string, hostName: string, now = Date.now()): { 
       packIds: BUILT_IN_PACKS.length > 0 ? [BUILT_IN_PACKS[0].id] : [],
       pointsToWin: DEFAULT_POINTS_TO_WIN,
       handSize: HAND_SIZE,
+      mode: DEFAULT_MODE,
     },
     customPacks: [],
     answers: { draw: [], discard: [] },
@@ -130,7 +135,7 @@ export function removePlayer(room: Room, playerId: string, now = Date.now()): bo
   if (room.players.length === 0) return false;
 
   ensureActiveHost(room);
-  handleDeparture(room, player, true);
+  handleDeparture(room, player, true, now);
   touch(room, now);
   return true;
 }
@@ -141,7 +146,7 @@ export function setActive(room: Room, playerId: string, active: boolean, now = D
   if (!player || player.active === active) return;
   player.active = active;
   ensureActiveHost(room);
-  if (!active) handleDeparture(room, player, false);
+  if (!active) handleDeparture(room, player, false, now);
   touch(room, now);
 }
 
@@ -153,7 +158,7 @@ function ensureActiveHost(room: Room): void {
   if (next) room.hostId = next.id;
 }
 
-function handleDeparture(room: Room, player: Player, removed: boolean): void {
+function handleDeparture(room: Room, player: Player, removed: boolean, now: number): void {
   const round = room.round;
   if (round && (room.phase === "playing" || room.phase === "judging")) {
     if (round.judgeId === player.id) {
@@ -167,12 +172,15 @@ function handleDeparture(room: Room, player: Player, removed: boolean): void {
         round.submissions = round.submissions.filter((s) => s !== own);
         room.answers.discard.push(...own.cards);
       }
+      // Their vote goes, and so do votes for their answer: those voters choose again.
+      round.votes = round.votes.filter((v) => v.playerId !== player.id && v.submissionId !== own?.id);
       if (room.phase === "judging" && round.submissions.length === 0) {
         cancelRound(room, "Every submission was withdrawn, so the round restarts.");
         return;
       }
     }
-    maybeStartJudging(room);
+    maybeStartJudging(room, now);
+    maybeFinishVoting(room, now);
   }
   if (isInGame(room) && activePlayers(room).length < MIN_PLAYERS_TO_CONTINUE) {
     returnToLobby(room, "Not enough players left to continue, so the game ended.");
@@ -202,7 +210,7 @@ function dispatch(room: Room, playerId: string, action: Action, now: number): { 
   let result: { packId?: string } = {};
   switch (action?.type) {
     case "updateSettings":
-      updateSettings(room, playerId, action.packIds, action.pointsToWin);
+      updateSettings(room, playerId, action.packIds, action.pointsToWin, action.mode);
       break;
     case "importPack":
       result = { packId: importPack(room, playerId, action.name, action.prompts, action.answers) };
@@ -214,14 +222,20 @@ function dispatch(room: Room, playerId: string, action: Action, now: number): { 
       startGame(room, playerId);
       break;
     case "submit":
-      submit(room, playerId, action.cardIds);
+      submit(room, playerId, action.cardIds, now);
       break;
     case "pickWinner":
       pickWinner(room, playerId, action.submissionId, now);
       break;
+    case "vote":
+      vote(room, playerId, action.submissionId, now);
+      break;
     case "nextRound":
       if (room.hostId !== playerId && room.round?.judgeId !== playerId) {
-        throw new GameError("Only the host or the judge can start the next round.", 403);
+        throw new GameError(
+          room.round?.voting ? "Only the host can start the next round." : "Only the host or the judge can start the next round.",
+          403,
+        );
       }
       nextRound(room);
       break;
@@ -245,7 +259,9 @@ function dispatch(room: Room, playerId: string, action: Action, now: number): { 
   return result;
 }
 
-function updateSettings(room: Room, playerId: string, packIds: unknown, pointsToWin: unknown): void {
+const MODES: readonly GameMode[] = ["vote", "judge"];
+
+function updateSettings(room: Room, playerId: string, packIds: unknown, pointsToWin: unknown, mode: unknown): void {
   requireHost(room, playerId);
   requirePhase(room, "lobby", "gameOver");
   if (packIds !== undefined) {
@@ -265,9 +281,13 @@ function updateSettings(room: Room, playerId: string, packIds: unknown, pointsTo
   ) {
     throw new GameError(`Points to win must be a whole number from ${MIN_POINTS_TO_WIN} to ${MAX_POINTS_TO_WIN}.`);
   }
+  if (mode !== undefined && !MODES.includes(mode as GameMode)) {
+    throw new GameError(`Game mode must be one of: ${MODES.join(", ")}.`);
+  }
   // Apply only once everything is valid, so a rejected change leaves the settings as they were.
   if (packIds !== undefined) room.settings.packIds = [...new Set(packIds as string[])];
   if (pointsToWin !== undefined) room.settings.pointsToWin = pointsToWin as number;
+  if (mode !== undefined) room.settings.mode = mode as GameMode;
 }
 
 function importPack(room: Room, playerId: string, name: unknown, prompts: unknown, answers: unknown): string {
@@ -328,7 +348,7 @@ function startGame(room: Room, playerId: string): void {
   startRound(room);
 }
 
-function submit(room: Room, playerId: string, cardIds: unknown): void {
+function submit(room: Room, playerId: string, cardIds: unknown, now: number): void {
   requirePhase(room, "playing");
   const round = room.round!;
   if (round.judgeId === playerId && !round.twoPlayer) throw new GameError("The judge doesn't play cards this round.", 403);
@@ -348,22 +368,47 @@ function submit(room: Room, playerId: string, cardIds: unknown): void {
   });
   player.hand = player.hand.filter((c) => !cardIds.includes(c.id));
   round.submissions.push({ id: randomId(), playerId, cards });
-  maybeStartJudging(room);
+  maybeStartJudging(room, now);
 }
 
 function pickWinner(room: Room, playerId: string, submissionId: unknown, now: number): void {
   requirePhase(room, "judging");
   const round = room.round!;
+  if (round.voting) throw new GameError("Everyone votes this round. Vote for your favourite answer instead.", 403);
   if (round.judgeId !== playerId) throw new GameError("Only the judge picks the winner.", 403);
   const winning = round.submissions.find((s) => s.id === submissionId);
   if (!winning) throw new GameError("That submission doesn't exist.", 404);
+  finishRound(room, [winning], now);
+}
 
-  const winner = getPlayer(room, winning.playerId);
-  winner.score += 1;
-  round.winnerSubmissionId = winning.id;
-  if (winner.score >= room.settings.pointsToWin) {
+function vote(room: Room, playerId: string, submissionId: unknown, now: number): void {
+  requirePhase(room, "judging");
+  const round = room.round!;
+  if (!round.voting) throw new GameError("The judge picks the winner this round.", 403);
+  if (!round.participantIds.includes(playerId)) throw new GameError("You'll get to vote from the next round.", 403);
+  if (round.votes.some((v) => v.playerId === playerId)) throw new GameError("You already voted this round.");
+  const choice = round.submissions.find((s) => s.id === submissionId);
+  if (!choice) throw new GameError("That submission doesn't exist.", 404);
+  if (choice.playerId === playerId) throw new GameError("You can't vote for your own answer.");
+  round.votes.push({ playerId, submissionId: choice.id });
+  maybeFinishVoting(room, now);
+}
+
+/**
+ * Scores the winning submissions and shows the result. The game ends once someone has
+ * reached the target and leads on their own; players tied at the top (possible after a
+ * tied vote) play on until one of them is ahead.
+ */
+function finishRound(room: Room, winning: Submission[], now: number): void {
+  const round = room.round!;
+  round.winnerSubmissionIds = winning.map((s) => s.id);
+  for (const s of winning) getPlayer(room, s.playerId).score += 1;
+
+  const top = Math.max(...room.players.map((p) => p.score));
+  const leaders = room.players.filter((p) => p.score === top);
+  if (top >= room.settings.pointsToWin && leaders.length === 1) {
     room.phase = "gameOver";
-    room.winnerId = winner.id;
+    room.winnerId = leaders[0].id;
     round.nextRoundAt = null;
   } else {
     room.phase = "roundResult";
@@ -390,11 +435,13 @@ function startRound(room: Room): void {
     returnToLobby(room, "Not enough players left to continue, so the game ended.");
     return;
   }
-  const judgeId = nextJudge(room);
-  const prompt = drawPrompt(room);
   // With only two players the judge (the leader) plays as well, so both answers compete.
+  // Voting needs a third player: two voters could only ever vote for each other.
   const twoPlayer = active.length === 2;
-  const plays = (p: Player) => twoPlayer || p.id !== judgeId;
+  const voting = room.settings.mode === "vote" && active.length >= MIN_PLAYERS_TO_VOTE;
+  const judgeId = voting ? null : nextJudge(room);
+  const prompt = drawPrompt(room);
+  const plays = (p: Player) => voting || twoPlayer || p.id !== judgeId;
 
   // Hands are topped up to the hand size, and for "Draw 2, Pick 3" prompts to pick - 1
   // above it. Topping up (rather than adding) keeps a restarted round from dealing twice.
@@ -414,10 +461,12 @@ function startRound(room: Room): void {
     number: (room.round?.number ?? 0) + 1,
     judgeId,
     twoPlayer,
+    voting,
     prompt,
     participantIds,
     submissions: [],
-    winnerSubmissionId: null,
+    votes: [],
+    winnerSubmissionIds: [],
     nextRoundAt: null,
   };
   room.round = round;
@@ -441,7 +490,7 @@ function nextJudge(room: Room): string {
   return id;
 }
 
-function maybeStartJudging(room: Room): void {
+function maybeStartJudging(room: Room, now: number): void {
   if (room.phase !== "playing" || !room.round) return;
   const round = room.round;
   const waiting = round.participantIds.filter((id) => {
@@ -455,6 +504,34 @@ function maybeStartJudging(room: Room): void {
   }
   round.submissions = shuffle(round.submissions);
   room.phase = "judging";
+  // Nobody may be able to vote at all (e.g. the only answer is the only voter's own).
+  maybeFinishVoting(room, now);
+}
+
+/** Participants still due to vote: present, not voted yet, and with someone else's answer to choose. */
+function pendingVoters(room: Room): string[] {
+  const round = room.round!;
+  return round.participantIds.filter(
+    (id) =>
+      room.players.find((p) => p.id === id)?.active &&
+      !round.votes.some((v) => v.playerId === id) &&
+      round.submissions.some((s) => s.playerId !== id),
+  );
+}
+
+/** Once every vote that can come in is in, the answers with the most votes win the round. */
+function maybeFinishVoting(room: Room, now: number): void {
+  if (room.phase !== "judging" || !room.round?.voting) return;
+  if (pendingVoters(room).length > 0) return;
+  const round = room.round;
+  if (round.votes.length === 0) {
+    cancelRound(room, "Nobody was left to vote, so the round restarts.");
+    return;
+  }
+  const tally = new Map<string, number>();
+  for (const v of round.votes) tally.set(v.submissionId, (tally.get(v.submissionId) ?? 0) + 1);
+  const most = Math.max(...tally.values());
+  finishRound(room, round.submissions.filter((s) => tally.get(s.id) === most), now);
 }
 
 /** Abandons the current round: played cards go back to their owners and a new round starts. */
@@ -520,7 +597,7 @@ export function toView(room: Room, viewerId: string): RoomView {
   const round = room.round;
   const revealed = room.phase === "roundResult" || room.phase === "gameOver";
   const inRound = room.phase === "playing" || room.phase === "judging" || room.phase === "roundResult";
-  const winning = round?.submissions.find((s) => s.id === round.winnerSubmissionId);
+  const authorOf = (submissionId: string) => round?.submissions.find((s) => s.id === submissionId)?.playerId ?? "";
 
   return {
     code: room.code,
@@ -535,6 +612,7 @@ export function toView(room: Room, viewerId: string): RoomView {
       isJudge: inRound && round?.judgeId === p.id,
       active: p.active,
       hasSubmitted: !!round?.submissions.some((s) => s.playerId === p.id),
+      hasVoted: !!round?.votes.some((v) => v.playerId === p.id),
     })),
     settings: { ...room.settings, packIds: [...room.settings.packIds] },
     packs: allPacks(room).map(summarize),
@@ -542,16 +620,28 @@ export function toView(room: Room, viewerId: string): RoomView {
       number: round.number,
       judgeId: round.judgeId,
       twoPlayer: round.twoPlayer,
+      voting: round.voting,
       prompt: round.prompt,
       participantIds: [...round.participantIds],
       submittedCount: round.submissions.length,
+      voterIds: round.voting
+        ? round.participantIds.filter((id) => round.submissions.some((s) => s.playerId !== id))
+        : [],
+      votedCount: round.votes.length,
       submissions:
         room.phase === "playing"
           ? []
-          : round.submissions.map((s) => ({ id: s.id, cards: s.cards, playerId: revealed ? s.playerId : null })),
+          : round.submissions.map((s) => ({
+              id: s.id,
+              cards: s.cards,
+              playerId: revealed ? s.playerId : null,
+              yours: s.playerId === viewerId,
+              votes: revealed && round.voting ? round.votes.filter((v) => v.submissionId === s.id).length : null,
+            })),
       yourSubmission: round.submissions.find((s) => s.playerId === viewerId)?.cards ?? null,
-      winnerSubmissionId: round.winnerSubmissionId,
-      winnerPlayerId: revealed && winning ? winning.playerId : null,
+      yourVote: round.votes.find((v) => v.playerId === viewerId)?.submissionId ?? null,
+      winnerSubmissionIds: [...round.winnerSubmissionIds],
+      winnerPlayerIds: revealed ? round.winnerSubmissionIds.map(authorOf) : [],
       nextRoundAt: round.nextRoundAt,
     },
     winnerId: room.winnerId,

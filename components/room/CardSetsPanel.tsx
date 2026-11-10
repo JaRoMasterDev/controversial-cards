@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ChevronIcon } from "@/components/ui/icons";
 import { Panel } from "@/components/ui/Panel";
+import { GameModePicker, MODES } from "./GameModePicker";
 import { languageName } from "./languages";
 import { PointsToWin } from "./PointsToWin";
 
@@ -240,7 +241,8 @@ function HostCardSets({ view, act }: { view: RoomView; act: Act }) {
         <LicenseNote packs={view.packs} />
       </div>
 
-      <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+      <div className="mt-4 space-y-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+        <GameModePicker value={view.settings.mode} act={act} />
         <PointsToWin value={view.settings.pointsToWin} act={act} />
       </div>
     </Panel>
@@ -269,11 +271,15 @@ function CardSetsSummary({ view }: { view: RoomView }) {
       <div className="mt-4 space-y-1 border-t border-zinc-100 pt-4 dark:border-zinc-800">
         <Totals packs={selected} />
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {MODES.find((m) => m.value === view.settings.mode)?.label}
+          </span>
+          {" · "}
           First to <span className="font-semibold text-zinc-900 dark:text-zinc-100">{plural(view.settings.pointsToWin, "point")}</span>{" "}
           wins.
         </p>
       </div>
-      <p className="mt-3 text-xs text-zinc-500">Only the host can change the card sets and the score.</p>
+      <p className="mt-3 text-xs text-zinc-500">Only the host can change the card sets and the rules.</p>
       <div className="mt-2">
         <LicenseNote packs={selected} />
       </div>

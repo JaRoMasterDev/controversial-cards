@@ -1,6 +1,6 @@
 # Controversial Cards
 
-A multiplayer fill-in-the-blank party card game. One player judges each round, everyone else plays their funniest answer cards into the blanks of a question, and the judge picks a winner.
+A multiplayer fill-in-the-blank party card game. Everyone plays their funniest answer cards into the blanks of a question, then everyone votes for the best answer. Prefer the classic way? Switch the room to a rotating judge who picks the winner.
 
 ## Run it
 
@@ -16,15 +16,17 @@ Create a room, share the 4-letter code (or the invite link), and start once at l
 
 ## How a game works
 
-1. The host picks the card sets (built-in and/or imported) and the points needed to win, then starts the game. Everyone is dealt 10 answer cards.
-2. Each round a **judge** is chosen at random. The role changes every round, and everyone judges once before anyone judges again.
-3. The judge's question is shown to all. Everyone else plays as many answer cards as the question has blanks, in the order they fill them. Questions with three blanks deal everyone two extra cards first.
-4. When all players have played, the submissions are revealed anonymously and the judge picks the best one. Its author scores a point.
-5. Who played what is revealed, hands are refilled to 10 and the next round starts. The first player to reach the target score wins.
+1. The host picks the card sets (built-in and/or imported), who picks the winner (see below) and the points needed to win, then starts the game. Everyone is dealt 10 answer cards.
+2. Each round a question is shown to all. Every player plays as many answer cards as the question has blanks, in the order they fill them. Questions with three blanks deal everyone two extra cards first.
+3. When all players have played, the submissions are revealed anonymously and **everyone votes** for their favourite. You can't vote for your own answer.
+4. Once all votes are in, the answer with the most votes scores a point for its author. Answers tied for the most votes all score.
+5. Who played what and how many votes each answer got is revealed, hands are refilled to 10 and the next round starts. The first player to reach the target score wins. If a tied vote leaves several players level at or above the target, play continues until one of them leads.
 
-**Two players:** with exactly two active players, the judge becomes the **leader**. The role still alternates every round, but the leader plays a card too, and once both answers are in they pick the funnier one, which can be their own. With three or more players the judge only judges.
+**Rotating judge:** in the lobby the host can switch from *Everyone votes* (the default) to *Rotating judge*. Then each round a **judge** is chosen at random, sits the round out, and picks the best answer alone. The role changes every round, and everyone judges once before anyone judges again.
 
-Players who join mid-game are dealt in from the next round. If someone disconnects for more than 15 seconds they are marked away and skipped; if that was the judge, the round restarts with a new judge. A player who lost their tab can rejoin with the same name to get their seat, score and hand back.
+**Two players:** a vote between two players would always tie, so with exactly two active players, in either mode, the rounds have a **leader** instead. The role alternates every round; the leader plays a card too, and once both answers are in they pick the funnier one, which can be their own. As soon as a third player is active, rounds go back to voting (or to a judge who only judges).
+
+Players who join mid-game are dealt in from the next round, and vote from then on too. If someone disconnects for more than 15 seconds they are marked away and skipped, both when playing and when voting; if that was the judge, the round restarts with a new judge. If a player leaves during the vote, their answer is withdrawn and anyone who voted for it votes again. A player who lost their tab can rejoin with the same name to get their seat, score and hand back.
 
 ## Built-in card sets
 
@@ -54,7 +56,7 @@ There is no database. All rooms live in memory in the Next.js server process and
 
 | Path | Purpose |
 | --- | --- |
-| `lib/game/engine.ts` | Pure game rules: dealing, judge rotation, submissions, scoring, departures |
+| `lib/game/engine.ts` | Pure game rules: dealing, judge rotation, submissions, voting, scoring, departures |
 | `lib/game/cards.ts` | Blank parsing, filling questions with answers, import validation |
 | `lib/game/types.ts` | Shared types, including the per-player `RoomView` sent to clients |
 | `lib/packs/` | Built-in card sets; `classic/` holds the adapted print-and-play sets and their licence |
@@ -63,7 +65,7 @@ There is no database. All rooms live in memory in the Next.js server process and
 | `lib/client/` | Session storage, API calls and the `useRoom` hook |
 | `components/`, `app/` | UI, including the `/credits` page |
 
-Each player's view is computed on the server, so nobody receives another player's hand, and submissions stay anonymous until the judge has picked.
+Each player's view is computed on the server, so nobody receives another player's hand, submissions stay anonymous until the winner is decided, and votes stay secret until the result.
 
 Because state is in memory, run it as a single long-lived Node process (`npm run build && npm start`). Serverless or multi-instance hosting would give each instance its own rooms.
 

@@ -7,6 +7,7 @@ vi.mock("@/lib/packs", () => ({ BUILT_IN_PACKS: [] }));
 import {
   activePlayers,
   addPlayer,
+  DEFAULT_MODE,
   applyAction,
   createRoom,
   findPlayerByToken,
@@ -19,7 +20,7 @@ import {
   setActive,
   toView,
 } from "../engine";
-import type { Action, Player, Room, Submission } from "../types";
+import type { Action, GameMode, Player, Room, Submission } from "../types";
 
 // ---------------------------------------------------------------------------
 // Fixtures and helpers
@@ -43,6 +44,8 @@ interface SetupOptions {
   prompts?: string[];
   answers?: number | string[];
   pointsToWin?: number;
+  /** Most tests cover the judge's rules; the voting tests opt in to "vote". */
+  mode?: GameMode;
 }
 
 interface Setup {
@@ -53,14 +56,20 @@ interface Setup {
 }
 
 /** A lobby with `players` players (host first) and a single imported test pack selected. */
-function setupLobby({ players = 4, prompts = PICK1_PROMPTS, answers = 200, pointsToWin = 30 }: SetupOptions = {}): Setup {
+function setupLobby({
+  players = 4,
+  prompts = PICK1_PROMPTS,
+  answers = 200,
+  pointsToWin = 30,
+  mode = "judge",
+}: SetupOptions = {}): Setup {
   const { room, player: host } = createRoom("TEST", "Host");
   const all = [host];
   for (let i = 1; i < players; i++) all.push(addPlayer(room, `Player ${i}`));
   const answerTexts = typeof answers === "number" ? makeAnswers(answers) : answers;
   const { packId } = applyAction(room, host.id, { type: "importPack", name: "Test pack", prompts, answers: answerTexts });
   expect(packId).toBeTruthy();
-  applyAction(room, host.id, { type: "updateSettings", packIds: [packId!], pointsToWin });
+  applyAction(room, host.id, { type: "updateSettings", packIds: [packId!], pointsToWin, mode });
   return { room, host, players: all, packId: packId! };
 }
 
@@ -82,7 +91,9 @@ function player(room: Room, id: string): Player {
 }
 
 function judgeOf(room: Room): string {
-  return room.round!.judgeId;
+  const id = room.round!.judgeId;
+  if (!id) throw new Error("This round has no judge.");
+  return id;
 }
 
 function handIds(room: Room, id: string): string[] {
@@ -113,6 +124,21 @@ function submissionOf(room: Room, id: string): Submission {
   const found = room.round!.submissions.find((s) => s.playerId === id);
   if (!found) throw new Error(`No submission by ${id}`);
   return found;
+}
+
+/** Voting-round participants who still have to vote: present, not voted, with someone else's answer to pick. */
+function pendingVoters(room: Room): string[] {
+  const round = room.round!;
+  return round.participantIds.filter(
+    (id) =>
+      player(room, id).active &&
+      !round.votes.some((v) => v.playerId === id) &&
+      round.submissions.some((s) => s.playerId !== id),
+  );
+}
+
+function vote(room: Room, voterId: string, authorId: string, now?: number): void {
+  applyAction(room, voterId, { type: "vote", submissionId: submissionOf(room, authorId).id }, now);
 }
 
 /** Judge picks the submission whose author has the lowest score, which keeps games long. */
@@ -502,12 +528,19 @@ describe("judging", () => {
   it("shows the submissions to everyone without saying who played them", () => {
     const { room } = startGame({ players: 4 });
     submitAll(room);
-    const expected = room.round!.submissions.map((s) => ({ id: s.id, cards: s.cards, playerId: null }));
     for (const p of room.players) {
       const round = toView(room, p.id).round!;
-      expect(round.submissions).toEqual(expected);
-      expect(round.winnerPlayerId).toBeNull();
-      expect(round.winnerSubmissionId).toBeNull();
+      expect(round.submissions).toEqual(
+        room.round!.submissions.map((s) => ({
+          id: s.id,
+          cards: s.cards,
+          playerId: null,
+          yours: s.playerId === p.id,
+          votes: null,
+        })),
+      );
+      expect(round.winnerPlayerIds).toEqual([]);
+      expect(round.winnerSubmissionIds).toEqual([]);
     }
   });
 
@@ -566,7 +599,7 @@ describe("judging", () => {
           }
         }
         for (const p of view.players) expect(Object.keys(p).sort()).toEqual(
-          ["active", "hasSubmitted", "id", "isHost", "isJudge", "name", "score"],
+          ["active", "hasSubmitted", "hasVoted", "id", "isHost", "isJudge", "name", "score"],
         );
       }
     };
@@ -606,13 +639,13 @@ describe("picking the winner", () => {
     expect(room.phase).toBe("roundResult");
     expect(player(room, winning.playerId).score).toBe(1);
     for (const p of room.players) if (p.id !== winning.playerId) expect(p.score).toBe(0);
-    expect(room.round!.winnerSubmissionId).toBe(winning.id);
+    expect(room.round!.winnerSubmissionIds).toEqual([winning.id]);
     expect(room.round!.nextRoundAt).toBe(now + RESULT_DELAY_MS);
 
     for (const viewer of room.players) {
       const round = toView(room, viewer.id).round!;
-      expect(round.winnerSubmissionId).toBe(winning.id);
-      expect(round.winnerPlayerId).toBe(winning.playerId);
+      expect(round.winnerSubmissionIds).toEqual([winning.id]);
+      expect(round.winnerPlayerIds).toEqual([winning.playerId]);
       expect(round.nextRoundAt).toBe(now + RESULT_DELAY_MS);
       for (const s of round.submissions) {
         expect(s.playerId).toBe(room.round!.submissions.find((real) => real.id === s.id)!.playerId);
@@ -664,7 +697,7 @@ describe("the next round", () => {
     expect(room.round!.number).toBe(2);
     expect(judgeOf(room)).not.toBe(judge);
     expect(room.round!.submissions).toEqual([]);
-    expect(room.round!.winnerSubmissionId).toBeNull();
+    expect(room.round!.winnerSubmissionIds).toEqual([]);
     expect(room.round!.nextRoundAt).toBeNull();
     for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE);
     for (const id of played) expect(room.answers.discard.map((c) => c.id)).toContain(id);
@@ -1016,6 +1049,7 @@ describe("settings and permissions", () => {
     const guest = players[1].id;
     expectRejected(room, guest, { type: "updateSettings", pointsToWin: 5 }, 403);
     expectRejected(room, guest, { type: "updateSettings", packIds: [] }, 403);
+    expectRejected(room, guest, { type: "updateSettings", mode: "vote" }, 403);
     expectRejected(room, guest, { type: "importPack", name: "Mine", prompts: ["Why _?"], answers: ["Me."] }, 403);
     expectRejected(room, guest, { type: "removePack", packId }, 403);
     expectRejected(room, guest, { type: "kick", playerId: players[2].id }, 403);
@@ -1036,6 +1070,10 @@ describe("settings and permissions", () => {
     applyAction(room, host.id, { type: "updateSettings", packIds: [packId, packId] });
     expect(room.settings.packIds).toEqual([packId]);
     expect(room.settings.handSize).toBe(HAND_SIZE);
+    applyAction(room, host.id, { type: "updateSettings", mode: "vote" });
+    expect(room.settings.mode).toBe("vote");
+    applyAction(room, host.id, { type: "updateSettings", mode: "judge" });
+    expect(room.settings.mode).toBe("judge");
   });
 
   it.each([
@@ -1047,6 +1085,8 @@ describe("settings and permissions", () => {
     ["packIds as a string", { packIds: "core" }],
     ["non-string pack ids", { packIds: [1] }],
     ["an unknown pack id", { packIds: ["does-not-exist"] }],
+    ["an unknown mode", { mode: "chaos" }],
+    ["a mode that isn't a string", { mode: 1 }],
   ])("rejects invalid settings: %s", (_label, settings) => {
     const { room, host } = setupLobby({ players: 3 });
     expectRejected(room, host.id, raw({ type: "updateSettings", ...settings }));
@@ -1062,6 +1102,7 @@ describe("settings and permissions", () => {
   it("doesn't allow settings or pack changes while a game is running", () => {
     const { room, host, packId } = startGame({ players: 3 });
     expectRejected(room, host.id, { type: "updateSettings", pointsToWin: 5 }, 409);
+    expectRejected(room, host.id, { type: "updateSettings", mode: "vote" }, 409);
     expectRejected(room, host.id, { type: "importPack", name: "Late", prompts: ["Why _?"], answers: ["Me."] }, 409);
     expectRejected(room, host.id, { type: "removePack", packId }, 409);
   });
@@ -1203,7 +1244,8 @@ describe("two-player rounds", () => {
     expect(round.twoPlayer).toBe(false);
     expect(round.participantIds).not.toContain(round.judgeId);
     expect(round.participantIds).toHaveLength(2);
-    expect(() => submit(room, round.judgeId, handIds(room, round.judgeId).slice(0, 1))).toThrow(/judge doesn't play/);
+    const judge = judgeOf(room);
+    expect(() => submit(room, judge, handIds(room, judge).slice(0, 1))).toThrow(/judge doesn't play/);
   });
 
   it("switches to two-player rounds when a three-player game drops to two", () => {
@@ -1236,6 +1278,235 @@ describe("two-player rounds", () => {
   });
 });
 
+
+describe("voting rounds", () => {
+  it("are the default for new rooms", () => {
+    const { room } = createRoom("TEST", "Host");
+    expect(DEFAULT_MODE).toBe("vote");
+    expect(room.settings.mode).toBe("vote");
+  });
+
+  it("have no judge: every active player plays", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    const round = room.round!;
+    expect(round.voting).toBe(true);
+    expect(round.twoPlayer).toBe(false);
+    expect(round.judgeId).toBeNull();
+    expect([...round.participantIds].sort()).toEqual(room.players.map((p) => p.id).sort());
+    for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE);
+
+    const view = toView(room, room.hostId);
+    expect(view.round!.voting).toBe(true);
+    expect(view.round!.judgeId).toBeNull();
+    expect(view.players.every((p) => !p.isJudge)).toBe(true);
+  });
+
+  it("deals everyone the Draw 2 bonus for three-blank prompts", () => {
+    const { room } = startGame({ players: 3, mode: "vote", prompts: PICK3_PROMPTS });
+    for (const p of room.players) expect(p.hand).toHaveLength(HAND_SIZE + 2);
+  });
+
+  it("start voting once everyone has played, and nobody can pick a winner alone", () => {
+    const { room } = startGame({ players: 3, mode: "vote" });
+    const [a, b, c] = room.round!.participantIds;
+    submit(room, a);
+    submit(room, b);
+    expect(room.phase).toBe("playing");
+    expectRejected(room, a, { type: "vote", submissionId: submissionOf(room, b).id }, 409);
+    submit(room, c);
+    expect(room.phase).toBe("judging");
+    expectRejected(room, room.hostId, { type: "pickWinner", submissionId: submissionOf(room, a).id }, 403);
+  });
+
+  it("don't let anyone vote for their own answer, twice, or for something that doesn't exist", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    submitAll(room);
+    const [a, b] = room.round!.participantIds;
+    expectRejected(room, a, { type: "vote", submissionId: submissionOf(room, a).id });
+    expectRejected(room, a, { type: "vote", submissionId: "nope" }, 404);
+    expectRejected(room, "stranger", { type: "vote", submissionId: submissionOf(room, b).id }, 403);
+    vote(room, a, b);
+    expectRejected(room, a, { type: "vote", submissionId: submissionOf(room, b).id });
+  });
+
+  it("let only this round's players vote", () => {
+    const { room } = startGame({ players: 3, mode: "vote" });
+    const late = addPlayer(room, "Late");
+    submitAll(room);
+    expectRejected(room, late.id, { type: "vote", submissionId: room.round!.submissions[0].id }, 403);
+    expect(toView(room, late.id).round!.voterIds).not.toContain(late.id);
+  });
+
+  it("are only possible in voting rounds", () => {
+    const { room } = startGame({ players: 3, mode: "judge" });
+    submitAll(room);
+    const author = room.round!.participantIds[0];
+    const other = room.round!.participantIds[1];
+    expectRejected(room, other, { type: "vote", submissionId: submissionOf(room, author).id }, 403);
+  });
+
+  it("give the point to the answer with the most votes and keep votes secret until then", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    submitAll(room);
+    const [a, b, c, d] = room.round!.participantIds;
+    const now = 2_000_000;
+    vote(room, a, b, now);
+    vote(room, c, b, now);
+
+    // Mid-vote: who voted is visible, for whom only to the voter, and no counts yet.
+    const midA = toView(room, a);
+    expect(midA.round!.yourVote).toBe(submissionOf(room, b).id);
+    expect(midA.round!.votedCount).toBe(2);
+    expect(midA.round!.submissions.every((s) => s.votes === null && s.playerId === null)).toBe(true);
+    expect(toView(room, d).round!.yourVote).toBeNull();
+    expect(midA.players.find((p) => p.id === a)!.hasVoted).toBe(true);
+    expect(midA.players.find((p) => p.id === d)!.hasVoted).toBe(false);
+
+    vote(room, b, a, now);
+    expect(room.phase).toBe("judging");
+    vote(room, d, c, now);
+
+    expect(room.phase).toBe("roundResult");
+    expect(room.round!.nextRoundAt).toBe(now + RESULT_DELAY_MS);
+    expect(room.round!.winnerSubmissionIds).toEqual([submissionOf(room, b).id]);
+    expect(room.players.map((p) => [p.id, p.score])).toEqual(room.players.map((p) => [p.id, p.id === b ? 1 : 0]));
+
+    const view = toView(room, d).round!;
+    expect(view.winnerPlayerIds).toEqual([b]);
+    const votesFor = (author: string) => view.submissions.find((s) => s.playerId === author)!.votes;
+    expect([votesFor(a), votesFor(b), votesFor(c), votesFor(d)]).toEqual([1, 2, 1, 0]);
+  });
+
+  it("give every answer tied for the most votes a point", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    submitAll(room);
+    const [a, b, c, d] = room.round!.participantIds;
+    vote(room, a, b);
+    vote(room, b, a);
+    vote(room, c, a);
+    vote(room, d, b);
+
+    expect(room.phase).toBe("roundResult");
+    expect([...room.round!.winnerSubmissionIds].sort()).toEqual(
+      [submissionOf(room, a).id, submissionOf(room, b).id].sort(),
+    );
+    expect([a, b, c, d].map((id) => player(room, id).score)).toEqual([1, 1, 0, 0]);
+    const view = toView(room, c).round!;
+    expect([...view.winnerPlayerIds].sort()).toEqual([a, b].sort());
+    expect(view.winnerPlayerIds.map((id) => submissionOf(room, id).id)).toEqual(view.winnerSubmissionIds);
+  });
+
+  it("keep playing while players are tied at the top, then end the game once one leads", () => {
+    const { room } = startGame({ players: 3, mode: "vote", pointsToWin: 1 });
+    submitAll(room);
+    const [a, b, c] = room.round!.participantIds;
+    vote(room, a, b);
+    vote(room, b, c);
+    vote(room, c, a);
+    expect([a, b, c].map((id) => player(room, id).score)).toEqual([1, 1, 1]);
+    expect(room.phase).toBe("roundResult");
+    expect(room.winnerId).toBeNull();
+
+    nextRound(room);
+    submitAll(room);
+    vote(room, a, c);
+    vote(room, b, c);
+    vote(room, c, a);
+    expect(room.phase).toBe("gameOver");
+    expect(room.winnerId).toBe(c);
+    expect(room.round!.nextRoundAt).toBeNull();
+  });
+
+  it("let only the host start the next round early", () => {
+    const { room } = startGame({ players: 3, mode: "vote" });
+    submitAll(room);
+    const [a, b, c] = room.round!.participantIds;
+    vote(room, a, b);
+    vote(room, b, c);
+    vote(room, c, b);
+    const guest = room.players.find((p) => p.id !== room.hostId)!;
+    const error = expectRejected(room, guest.id, { type: "nextRound" }, 403);
+    expect(error.message).toMatch(/Only the host/);
+    applyAction(room, room.hostId, { type: "nextRound" });
+    expect(room.round!.number).toBe(2);
+    expect(room.round!.voting).toBe(true);
+  });
+
+  it("don't wait for a voter who goes away, but count their vote if they already voted", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    submitAll(room);
+    const [a, b, c, d] = room.round!.participantIds;
+    vote(room, a, b);
+    vote(room, b, c);
+    setActive(room, a, false);
+    vote(room, c, b);
+    expect(room.phase).toBe("judging");
+    setActive(room, d, false);
+    expect(room.phase).toBe("roundResult");
+    expect(room.round!.winnerSubmissionIds).toEqual([submissionOf(room, b).id]);
+  });
+
+  it("let voters choose again when the answer they voted for is withdrawn", () => {
+    const { room } = startGame({ players: 4, mode: "vote" });
+    submitAll(room);
+    const [a, b, c, d] = room.round!.participantIds;
+    vote(room, a, d);
+    vote(room, b, a);
+    vote(room, d, a);
+    applyAction(room, room.hostId === d ? a : room.hostId, { type: "kick", playerId: d });
+    expect(room.phase).toBe("judging");
+    expect(room.round!.votes.map((v) => v.playerId).sort()).toEqual([b].sort());
+    expect(pendingVoters(room).sort()).toEqual([a, c].sort());
+    expectAnswersConserved(room, 200);
+
+    vote(room, a, b);
+    vote(room, c, b);
+    expect(room.phase).toBe("roundResult");
+    expect(room.round!.winnerSubmissionIds).toEqual([submissionOf(room, b).id]);
+  });
+
+  it("restart the round when nobody is left who could vote", () => {
+    const { room } = startGame({ players: 3, mode: "vote" });
+    addPlayer(room, "Late");
+    const [a, b, c] = room.round!.participantIds;
+    submit(room, a);
+    setActive(room, b, false);
+    setActive(room, c, false);
+    // Only a's answer is in and a can't vote for it.
+    expect(room.notice).toMatch(/Nobody was left to vote/);
+    expect(room.phase).toBe("playing");
+    expect(room.round!.twoPlayer).toBe(true);
+    expect(player(room, a).hand).toHaveLength(HAND_SIZE);
+    expectAnswersConserved(room, 200);
+  });
+
+  it("fall back to two-player rounds with a leader when only two players are active", () => {
+    const { room } = startGame({ players: 2, mode: "vote" });
+    expect(room.round!.voting).toBe(false);
+    expect(room.round!.twoPlayer).toBe(true);
+    expect(room.round!.judgeId).not.toBeNull();
+
+    addPlayer(room, "Third");
+    playRound(room);
+    expect(room.round!.voting).toBe(true);
+    expect(room.round!.participantIds).toHaveLength(3);
+  });
+
+  it("switch to two-player rounds when a voting game drops to two players", () => {
+    const { room } = startGame({ players: 3, mode: "vote" });
+    const [a, b, c] = room.round!.participantIds;
+    submitAll(room);
+    vote(room, a, b);
+    vote(room, b, a);
+    setActive(room, c, false);
+    expect(room.phase).toBe("roundResult");
+    nextRound(room);
+    expect(room.round!.voting).toBe(false);
+    expect(room.round!.twoPlayer).toBe(true);
+    expect([...room.round!.participantIds].sort()).toEqual([a, b].sort());
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Randomised games with joins, departures and reconnects, checking the invariants
 // after every move.
@@ -1253,8 +1524,18 @@ function expectConsistent(room: Room, totalAnswers: number, totalPrompts: number
   expectAnswersConserved(room, totalAnswers);
   expectPromptsConserved(room, totalPrompts);
   const round = room.round!;
+  expect(round.voting).toBe(round.judgeId === null);
+  if (round.voting) expect(round.twoPlayer).toBe(false);
   // Only the leader of a two-player round plays as well as judges.
-  if (!round.twoPlayer) expect(round.participantIds).not.toContain(round.judgeId);
+  if (!round.twoPlayer && !round.voting) expect(round.participantIds).not.toContain(round.judgeId);
+  const voters = round.votes.map((v) => v.playerId);
+  expect(new Set(voters).size).toBe(voters.length);
+  for (const v of round.votes) {
+    expect(round.participantIds).toContain(v.playerId);
+    const choice = round.submissions.find((s) => s.id === v.submissionId);
+    expect(choice).toBeDefined();
+    expect(choice!.playerId).not.toBe(v.playerId);
+  }
   const authors = round.submissions.map((s) => s.playerId);
   expect(new Set(authors).size).toBe(authors.length);
   for (const s of round.submissions) {
@@ -1263,72 +1544,84 @@ function expectConsistent(room: Room, totalAnswers: number, totalPrompts: number
   }
 
   if (inRound) expect(activePlayers(room).length).toBeGreaterThanOrEqual(2);
-  if (room.phase === "playing" || room.phase === "judging") {
-    expect(player(room, round.judgeId).active).toBe(true);
+  if ((room.phase === "playing" || room.phase === "judging") && !round.voting) {
+    expect(player(room, judgeOf(room)).active).toBe(true);
   }
   if (room.phase === "playing") expect(pending(room).length).toBeGreaterThan(0);
   if (room.phase === "judging") expect(round.submissions.length).toBeGreaterThan(0);
+  if (room.phase === "judging" && round.voting) expect(pendingVoters(room).length).toBeGreaterThan(0);
 }
 
+const SEEDS = Array.from({ length: 15 }, (_, i) => i + 1);
+
 describe("randomised play", () => {
-  it.each(Array.from({ length: 15 }, (_, i) => i + 1))("keeps the room consistent (seed %i)", (seed) => {
-    const rand = mulberry32(seed);
-    const pickOne = <T>(items: T[]): T => items[Math.floor(rand() * items.length)];
-    const prompts = [...PICK1_PROMPTS, ...PICK2_PROMPTS, ...PICK3_PROMPTS];
-    const totalAnswers = 400;
-    const { room } = startGame({ players: 4, prompts, answers: totalAnswers, pointsToWin: 4 });
+  it.each(SEEDS.flatMap((seed) => (["judge", "vote"] as const).map((mode) => [mode, seed] as const)))(
+    "keeps the room consistent (%s mode, seed %i)",
+    (mode, seed) => {
+      const rand = mulberry32(seed);
+      const pickOne = <T>(items: T[]): T => items[Math.floor(rand() * items.length)];
+      const prompts = [...PICK1_PROMPTS, ...PICK2_PROMPTS, ...PICK3_PROMPTS];
+      const totalAnswers = 400;
+      const { room } = startGame({ players: 4, prompts, answers: totalAnswers, pointsToWin: 4, mode });
 
-    let extra = 0;
-    let game = 1;
-    let previous = { game, number: room.round!.number, judgeId: judgeOf(room) };
+      let extra = 0;
+      let game = 1;
+      let previous = { game, number: room.round!.number, judgeId: room.round!.judgeId };
 
-    for (let step = 0; step < 400; step++) {
-      const r = rand();
-      if (r < 0.07) {
-        const p = pickOne(room.players);
-        setActive(room, p.id, !p.active);
-      } else if (r < 0.1 && room.players.length > 3) {
-        applyAction(room, pickOne(room.players).id, { type: "leave" });
-      } else if (r < 0.13 && room.players.length < 9) {
-        addPlayer(room, `Extra ${++extra}`);
-      } else if (r < 0.15) {
-        const away = room.players.filter((p) => !p.active);
-        if (away.length > 0) addPlayer(room, pickOne(away).name.toUpperCase());
-      } else {
-        switch (room.phase) {
-          case "lobby":
-          case "gameOver":
-            for (const p of room.players) setActive(room, p.id, true);
-            while (activePlayers(room).length < 3) addPlayer(room, `Extra ${++extra}`);
-            applyAction(room, room.hostId, { type: "startGame" });
-            game++;
-            break;
-          case "playing": {
-            const id = pickOne(pending(room));
-            const hand = [...handIds(room, id)];
-            const cardIds: string[] = [];
-            while (cardIds.length < room.round!.prompt.pick) cardIds.push(hand.splice(Math.floor(rand() * hand.length), 1)[0]);
-            submit(room, id, cardIds);
-            break;
+      for (let step = 0; step < 400; step++) {
+        const r = rand();
+        if (r < 0.07) {
+          const p = pickOne(room.players);
+          setActive(room, p.id, !p.active);
+        } else if (r < 0.1 && room.players.length > 3) {
+          applyAction(room, pickOne(room.players).id, { type: "leave" });
+        } else if (r < 0.13 && room.players.length < 9) {
+          addPlayer(room, `Extra ${++extra}`);
+        } else if (r < 0.15) {
+          const away = room.players.filter((p) => !p.active);
+          if (away.length > 0) addPlayer(room, pickOne(away).name.toUpperCase());
+        } else {
+          switch (room.phase) {
+            case "lobby":
+            case "gameOver":
+              for (const p of room.players) setActive(room, p.id, true);
+              while (activePlayers(room).length < 3) addPlayer(room, `Extra ${++extra}`);
+              applyAction(room, room.hostId, { type: "startGame" });
+              game++;
+              break;
+            case "playing": {
+              const id = pickOne(pending(room));
+              const hand = [...handIds(room, id)];
+              const cardIds: string[] = [];
+              while (cardIds.length < room.round!.prompt.pick) cardIds.push(hand.splice(Math.floor(rand() * hand.length), 1)[0]);
+              submit(room, id, cardIds);
+              break;
+            }
+            case "judging":
+              if (room.round!.voting) {
+                const voter = pickOne(pendingVoters(room));
+                const choices = room.round!.submissions.filter((s) => s.playerId !== voter);
+                applyAction(room, voter, { type: "vote", submissionId: pickOne(choices).id });
+              } else {
+                applyAction(room, judgeOf(room), { type: "pickWinner", submissionId: pickOne(room.round!.submissions).id });
+              }
+              break;
+            case "roundResult":
+              nextRound(room);
+              break;
           }
-          case "judging":
-            applyAction(room, judgeOf(room), { type: "pickWinner", submissionId: pickOne(room.round!.submissions).id });
-            break;
-          case "roundResult":
-            nextRound(room);
-            break;
+        }
+
+        expectConsistent(room, totalAnswers, prompts.length);
+
+        if (room.round && room.phase !== "lobby") {
+          const current = { game, number: room.round.number, judgeId: room.round.judgeId };
+          if (current.game === previous.game && current.number === previous.number + 1 && current.judgeId) {
+            expect(current.judgeId).not.toBe(previous.judgeId);
+          }
+          previous = current;
         }
       }
-
-      expectConsistent(room, totalAnswers, prompts.length);
-
-      if (room.round && room.phase !== "lobby") {
-        const current = { game, number: room.round.number, judgeId: room.round.judgeId };
-        if (current.game === previous.game && current.number === previous.number + 1) {
-          expect(current.judgeId).not.toBe(previous.judgeId);
-        }
-        previous = current;
-      }
-    }
-  });
+    },
+  );
 });

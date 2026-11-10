@@ -76,7 +76,11 @@ function NotDealtIn({ view, round }: { view: RoomView; round: RoundView }) {
   return (
     <Stage
       card={<PromptCard text={round.prompt.text} pick={round.prompt.pick} />}
-      caption={`${judge?.name ?? `The ${judgeRole(round)}`} is the ${judgeRole(round)}`}
+      caption={
+        round.voting
+          ? "Everyone plays, then everyone votes"
+          : `${judge?.name ?? `The ${judgeRole(round)}`} is the ${judgeRole(round)}`
+      }
     >
       <StageHeading title="You'll be dealt in next round">
         This round started before you joined. Watch how it goes, your cards are ready for the next one.

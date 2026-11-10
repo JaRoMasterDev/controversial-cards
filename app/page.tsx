@@ -11,16 +11,16 @@ const steps = [
     text: "Create a room and share the invite link. You need at least two players, each on their own phone or laptop.",
   },
   {
-    title: "Meet the judge",
-    text: "Each round a random player is the judge and reads the question on the black card out loud.",
+    title: "Play your answers",
+    text: "Each round brings a question on a black card. Everyone fills its blanks with white answer cards from their hand. Worse is usually better.",
   },
   {
-    title: "Play your answers",
-    text: "Everyone else fills the blanks with white answer cards from their hand. Worse is usually better.",
+    title: "Vote for the best",
+    text: "The answers are shown without names and everyone votes for their favourite. You can't vote for your own.",
   },
   {
     title: "Win the point",
-    text: "The judge picks the funniest answer without knowing who played it. First to the target score wins.",
+    text: "The answer with the most votes scores a point, and tied answers all score. First to the target score wins.",
   },
 ];
 
@@ -73,9 +73,10 @@ export default function Home() {
           ))}
         </ol>
         <p className="mt-6 text-sm text-zinc-500">
-          Hosts can pick the card sets for the room or import their own as JSON. Questions with two or three blanks
-          take that many answers, played in order. With only two players you take turns as the leader, who plays a card
-          too and then picks the winner.
+          Prefer a judge? The host can switch the room to a rotating judge, who sits out a round and picks the winner.
+          Hosts can also pick the card sets or import their own as JSON. Questions with two or three blanks take that
+          many answers, played in order. With only two players you take turns as the leader, who plays a card too and
+          then picks the winner.
         </p>
       </section>
 
